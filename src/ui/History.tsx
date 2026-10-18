@@ -7,9 +7,10 @@ interface Props {
   state: GameState;
   onEdit: (id: string, text: string) => void;
   onColor: (id: string, color: PostColor | undefined) => void;
+  onColorLabel: (color: PostColor, label: string) => void;
 }
 
-const COLOR_LABEL: Record<PostColor, string> = { red: '赤', yellow: '黄', green: '緑', blue: '青', purple: '紫' };
+const DEFAULT_COLOR_LABEL: Record<PostColor, string> = { red: '赤', yellow: '黄', green: '緑', blue: '青', purple: '紫' };
 /** タップで 無色 → 赤 → 黄 → 緑 → 青 → 紫 → 無色 と切り替わる */
 const nextColor = (c?: PostColor): PostColor | undefined => {
   if (!c) return POST_COLORS[0];
@@ -22,7 +23,7 @@ const hhmm = (iso: string) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-export function History({ state, onEdit, onColor }: Props) {
+export function History({ state, onEdit, onColor, onColorLabel }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<PostColor | 'dream' | 'all'>('all');
@@ -39,10 +40,11 @@ export function History({ state, onEdit, onColor }: Props) {
       <div className="color-filter" role="group" aria-label="色で絞り込み">
         <button className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>すべて</button>
         {POST_COLORS.map((c) => (
-          <button key={c} className={`dot c-${c} ${filter === c ? 'on' : ''}`} onClick={() => setFilter(filter === c ? 'all' : c)} aria-label={`${COLOR_LABEL[c]}のメモ`}>
-            {state.diaries.filter((d) => d.color === c).length || ''}
+          <button key={c} className={`dot c-${c} ${filter === c ? 'on' : ''}`} onClick={() => setFilter(filter === c ? 'all' : c)} onContextMenu={(e) => { e.preventDefault(); const label = window.prompt('色タブの名前', state.colorLabels?.[c] ?? DEFAULT_COLOR_LABEL[c]); if (label?.trim()) onColorLabel(c, label); }} aria-label={`${state.colorLabels?.[c] ?? DEFAULT_COLOR_LABEL[c]}のメモ（右クリックで名前変更）`} title="右クリックで名前変更">
+            {state.colorLabels?.[c] ?? DEFAULT_COLOR_LABEL[c]} {state.diaries.filter((d) => d.color === c).length || ''}
           </button>
         ))}
+        <button onClick={() => { const color = window.prompt(`変更する色を選ぶ番号：\n${POST_COLORS.map((c, i) => `${i + 1}: ${state.colorLabels?.[c] ?? DEFAULT_COLOR_LABEL[c]}`).join('\n')}`); const c = POST_COLORS[Number(color) - 1]; if (c) { const label = window.prompt('新しい名前', state.colorLabels?.[c] ?? DEFAULT_COLOR_LABEL[c]); if (label?.trim()) onColorLabel(c, label); } }}>名前変更</button>
         <button className={filter === 'dream' ? 'on' : ''} onClick={() => setFilter(filter === 'dream' ? 'all' : 'dream')}>夢</button>
       </div>
       <p className="muted small hint">左の丸をタップすると色が変わります。色ごとにメモを振り分けられます。</p>
@@ -70,7 +72,7 @@ function PostItem({ d, state, open, toggle, onEdit, onColor }: { d: DiaryEntry; 
       <button
         className={`color-dot ${d.color ? `c-${d.color}` : ''}`}
         onClick={() => onColor(d.id, nextColor(d.color))}
-        aria-label={d.color ? `色：${COLOR_LABEL[d.color]}（タップで変更）` : '色をつける'}
+        aria-label={d.color ? `色：${state.colorLabels?.[d.color] ?? DEFAULT_COLOR_LABEL[d.color]}（タップで変更）` : '色をつける'}
       />
       <div className="post-body">
       <div onClick={toggle}>

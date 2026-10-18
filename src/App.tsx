@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { IDLE } from './game/config';
-import { createInitialState, editDiary, setPostColor, settleIdle, submitPost } from './game/engine';
+import { createInitialState, editDiary, fuseInventory, setColorLabel, setPostColor, settleIdle, submitPost } from './game/engine';
 import { NPC_CHATTER_CHANCE, npcLine, type NpcTrigger } from './game/npc';
 import { createRng, randomSeed } from './game/rng';
 import type { GameState, IdleReport, LogEvent } from './game/types';
@@ -152,9 +152,10 @@ export default function App() {
             state={state}
             onEdit={(id, text) => update(editDiary(state, id, text))}
             onColor={(id, color) => update(setPostColor(stateRef.current, id, color))}
+            onColorLabel={(color, label) => update(setColorLabel(stateRef.current, color, label))}
           />
         )}
-        {tab === 'equip' && <Equipment state={state} />}
+        {tab === 'equip' && <Equipment state={state} onFuse={() => { const result = fuseInventory(stateRef.current); if (result.item) { update(result.state); window.alert(`10個を凝縮して《${result.item.name}》を再抽選したぞ！`); } }} />}
         {tab === 'logs' && (
           <Logs
             state={state}

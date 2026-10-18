@@ -41,8 +41,8 @@ export const POST = {
   /** 投稿するとその場で探索が進む秒数 */
   instantExploreSeconds: 10 * 60,
   /** 「ひらめき」効果：投稿ごとに延長する時間と上限 */
-  inspirationSeconds: 2 * 3600,
-  inspirationMaxSeconds: Infinity,
+  inspirationSeconds: 30 * 60,
+  inspirationMaxSeconds: 2 * 3600,
   /** ひらめき中の探索ボーナス */
   inspirationExpMul: 1.5,
   inspirationChestMul: 1.6,

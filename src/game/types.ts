@@ -215,4 +215,5 @@ export interface GameState {
   expedition?: Expedition;
   idle: IdleState;
   reports: IdleReport[];
+  colorLabels: Record<PostColor, string>;
 }

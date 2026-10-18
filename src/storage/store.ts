@@ -47,6 +47,7 @@ export function migrate(data: unknown): GameState {
     // v0.2 で追加：放置進行。旧データは「今」から放置カウントを開始する（過去分を遡って付与しない）
     idle: { ...base.idle, ...(s.idle ?? {}) },
     reports: s.reports ?? [],
+    colorLabels: { ...base.colorLabels, ...(s.colorLabels ?? {}) },
   };
 }
 

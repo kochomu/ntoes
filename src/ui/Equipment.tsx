@@ -11,7 +11,7 @@ import { ItemCard, SLOT_LABEL } from './common';
 
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
 
-export function Equipment({ state }: { state: GameState }) {
+export function Equipment({ state, onFuse }: { state: GameState; onFuse: () => void }) {
   const [tab, setTab] = useState<'equip' | 'bag' | 'codex'>('equip');
   const [slot, setSlot] = useState<Slot | 'all'>('all');
   const [rarity, setRarity] = useState<Rarity | 'all'>('all');
@@ -77,6 +77,11 @@ export function Equipment({ state }: { state: GameState }) {
 
       {tab === 'bag' && (
         <>
+          <section className="card">
+            <div className="card-title">装備の凝縮</div>
+            <p className="muted small">未装備の装備10個を消費し、魔法級以上の装備1個に再抽選します。装備中・夢・神話級は素材から保護されます。</p>
+            <button className="ghost-btn" disabled={Object.values(state.items).filter((i) => !equippedIds.has(i.id) && !i.dream && i.rarity !== 'mythic').length < 10} onClick={onFuse}>10個を凝縮して再抽選</button>
+          </section>
           <div className="filters">
             <select value={slot} onChange={(e) => setSlot(e.target.value as Slot | 'all')}>
               <option value="all">全部位</option>

@@ -29,6 +29,7 @@ export function createInitialState(): GameState {
     idCounter: 0,
     idle: { carrySeconds: 0, expCarry: 0 },
     reports: [],
+    colorLabels: { red: '赤', yellow: '黄', green: '緑', blue: '青', purple: '紫' },
   };
 }
 
@@ -546,6 +547,35 @@ export function submitPost(
 export function setPostColor(prev: GameState, id: string, color: PostColor | undefined): GameState {
   const state: GameState = { ...prev, diaries: prev.diaries.map((d) => (d.id === id ? { ...d, color } : d)) };
   return state;
+}
+
+export function setColorLabel(prev: GameState, color: PostColor, label: string): GameState {
+  const clean = label.trim().slice(0, 12);
+  if (!clean) return prev;
+  return { ...prev, colorLabels: { ...prev.colorLabels, [color]: clean } };
+}
+
+/** 所持品10個を消費して、再抽選した装備1個に凝縮する。装備中・夢・神話級は保護。 */
+export function fuseInventory(prev: GameState, now = new Date()): { state: GameState; item?: Item } {
+  const state: GameState = structuredClone(prev);
+  const equipped = new Set(Object.values(state.character.equipped).filter(Boolean));
+  const rank = { normal: 0, magic: 1, rare: 2, legendary: 3, mythic: 4 } as const;
+  const candidates = Object.values(state.items).filter((i) => !equipped.has(i.id) && !i.dream && i.rarity !== 'mythic')
+    .sort((a, b) => rank[a.rarity] - rank[b.rarity] || a.ilvl - b.ilvl || a.acquiredAt.localeCompare(b.acquiredAt));
+  if (candidates.length < 10) return { state: prev };
+  const consumed = candidates.slice(0, 10);
+  const minRarity = Math.min(2, Math.max(1, Math.floor(consumed.reduce((n, i) => n + rank[i.rarity], 0) / consumed.length)));
+  for (const item of consumed) delete state.items[item.id];
+  const r = createRng(randomSeed());
+  const rarity = RARITIES[minRarity];
+  const item = generateItem(r, {
+    ilvl: itemLevelFor(state.character.level, state.character.bestFloor),
+    scale: itemScaleFor(state.character.bestFloor), themes: recentThemeWeights(state, now),
+    themeLuck: currentBuild(state).themeLuck,
+  }, nextId(state, 'i'), now.toISOString(), 'chest', { rarity });
+  const events: LogEvent[] = [];
+  acquireItem(state, item, events, now.toISOString());
+  return { state, item };
 }
 
 /** 投稿本文の編集（報酬は再付与しない。分類のみ更新） */

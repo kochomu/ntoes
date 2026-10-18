@@ -162,7 +162,7 @@ export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng,
     };
 
     let turns = 0;
-    while (enemies.length) {
+    combatLoop: while (enemies.length) {
       if (++turns > COMBAT.turnLimitPerFloor) {
         ex.ended = 'stalemate';
         push('normal', 'end', `第${floor}階層：${enemies[0].name}と決着がつかず撤退`);
@@ -170,6 +170,7 @@ export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng,
       }
       hit(enemies[0], 'main', 0);
       if (enemies.length && chance(rng, build.extraAttack)) hit(enemies[0], 'extra', 0);
+      let revived = false;
       for (const e of enemies) {
         if (chance(rng, build.dodge)) {
           say(`${e.name}の攻撃をかわした`);
@@ -183,7 +184,10 @@ export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng,
           if (ex.phoenixReady) {
             ex.phoenixReady = false;
             ex.hp = build.hp * build.phoenix;
+            revived = true;
             push('epic', 'phoenix', `第${floor}階層：力尽きた…が、装備の力で蘇った！`);
+            say(`蘇生！ HP${fmtNum(ex.hp)}で戦闘を続行`);
+            break;
           } else {
             ex.ended = 'defeat';
             ex.lastEnemy = { name: e.name, sprite: e.sprite, boss: e.boss };
@@ -193,6 +197,7 @@ export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng,
           }
         }
       }
+      if (revived) continue combatLoop;
     }
 
     if (event === 'boss') {

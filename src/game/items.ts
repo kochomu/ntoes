@@ -104,13 +104,14 @@ export function generateItem(rng: Rng, ctx: ItemContext, id: string, acquiredAt:
 
 /** 名前は能力・テーマと部分的に連動させつつ、ランダムな語も混ぜる */
 export function generateName(rng: Rng, base: ItemBaseDef, affixes: Affix[], special: Special | undefined, theme?: Theme): string {
+  const suffix = chance(rng, 0.12) ? pick(rng, ['・改', ' α', ' β', '・弐式', '・真']) : '';
   if (special) {
     const ep = pick(rng, SPECIAL_BY_KIND[special.kind].epithets);
-    return `${ep}${base.name}`;
+    return `${ep}${base.name}${suffix}`;
   }
   const lead = affixes.length && chance(rng, 0.8) ? pick(rng, AFFIX_BY_KIND[affixes[0].kind].words) : pick(rng, AFFIXES).words[0];
   const mid = theme && chance(rng, 0.75) ? pick(rng, THEME_PROFILES[theme].words) : chance(rng, 0.4) ? pick(rng, THEME_PROFILES[pick(rng, Object.keys(THEME_PROFILES) as Theme[])].words) : '';
-  return `${lead}${mid}${base.name}`;
+  return `${lead}${mid}${base.name}${suffix}`;
 }
 
 export function describeAffix(a: Affix): string {
