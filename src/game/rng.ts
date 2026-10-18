@@ -4,10 +4,16 @@ export interface Rng {
   next(): number;
 }
 
+export interface SerialRng extends Rng {
+  /** 現在の内部状態（保存して createRng に渡せば続きから再開できる） */
+  state(): number;
+}
+
 /** mulberry32: 軽量で再現性のあるシード付き乱数 */
-export function createRng(seed: number): Rng {
+export function createRng(seed: number): SerialRng {
   let a = seed >>> 0;
   return {
+    state: () => a,
     next() {
       a = (a + 0x6d2b79f5) >>> 0;
       let t = a;

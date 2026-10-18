@@ -66,7 +66,9 @@ export interface Item {
   tags: SynergyTag[];
   acquiredAt: string;
   diaryId?: string;
-  source: 'diary' | 'boss';
+  source: 'diary' | 'boss' | 'chest' | 'elite' | 'battle';
+  /** 入手した階層（探索ドロップのみ） */
+  floor?: number;
 }
 
 export type LogLevel = 'detail' | 'normal' | 'important' | 'epic';
@@ -107,6 +109,8 @@ export interface DiaryEntry {
   expGained: number;
   rewarded: boolean;
   logIds: string[];
+  /** 投稿時の結果ログ（v2以降の投稿） */
+  events?: LogEvent[];
 }
 
 export interface Character {
@@ -125,6 +129,67 @@ export interface RecordUpdate {
   logId: string;
 }
 
+export type FloorEvent = 'battle' | 'elite' | 'chest' | 'rest' | 'boss';
+
+/** 進行中の探索（中断・再開できるよう全状態を保持） */
+export interface Expedition {
+  id: string;
+  dungeonId: string;
+  startedAt: string;
+  floor: number; // 次に挑む階層
+  hp: number;
+  killStacks: number;
+  streak: number;
+  phoenixReady: boolean;
+  kills: number;
+  bossFloors: number[];
+  maxChain: number;
+  prevBest: number;
+  lastEnemy?: { name: string; sprite: string; boss: boolean };
+  lastEvent?: FloorEvent;
+  ended?: 'defeat' | 'stalemate' | 'cap';
+  events: LogEvent[];
+  itemIds: string[];
+}
+
+export interface IdleState {
+  /** 最後に探索を精算した時刻 */
+  lastTick?: string;
+  /** 1階層分に満たず繰り越した秒数 */
+  carrySeconds: number;
+  /** 端数の経験値 */
+  expCarry: number;
+  /** 投稿で得た「ひらめき」の効果終了時刻 */
+  inspirationUntil?: string;
+  rngState?: number;
+}
+
+/** 放置中の戦果まとめ */
+export interface IdleReport {
+  id: string;
+  from: string;
+  to: string;
+  seconds: number; // 実際の経過秒
+  countedSeconds: number; // 報酬対象（上限適用後）
+  kills: number;
+  floorsCleared: number;
+  deepest: number;
+  bosses: number;
+  chests: number;
+  rests: number;
+  elites: number;
+  expeditions: number;
+  exp: number;
+  levelFrom: number;
+  levelTo: number;
+  itemIds: string[];
+  bestFrom: number;
+  bestTo: number;
+  maxChain: number;
+  highlights: LogEvent[];
+  source: 'idle' | 'post';
+}
+
 export interface GameState {
   version: 1;
   character: Character;
@@ -134,4 +199,7 @@ export interface GameState {
   codex: Record<string, string>; // baseKey -> 初入手日時
   records: RecordUpdate[];
   idCounter: number;
+  expedition?: Expedition;
+  idle: IdleState;
+  reports: IdleReport[];
 }

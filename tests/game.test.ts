@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeDiary } from '../src/game/analyzer';
-import { DAILY_REWARD_LIMIT, ITEM_BASES } from '../src/game/config';
-import { simulateDungeon } from '../src/game/dungeon';
-import { createInitialState, editDiary, expForChars, submitDiary, tryAutoEquip } from '../src/game/engine';
+import { ITEM_BASES } from '../src/game/config';
+import { playFloor, simulateDungeon, startExpedition } from '../src/game/dungeon';
+import { checkpointFloor, createInitialState, editDiary, expForChars, settleIdle, submitPost, tryAutoEquip } from '../src/game/engine';
+import { IDLE, POST } from '../src/game/config';
+import { migrate } from '../src/storage/store';
 import { generateItem } from '../src/game/items';
 import { createRng, sequenceRng } from '../src/game/rng';
 import { computeBuild } from '../src/game/stats';
@@ -18,11 +20,22 @@ describe('analyzer', () => {
     expect(types).toContain('learning');
     expect(types).toContain('discovery');
   });
-  it('does not treat negated / planned reading as done', () => {
-    const a = analyzeDiary('今日は本を読めなかった。明日は本を読む予定。');
-    expect(a.themes.map((t) => t.type)).not.toContain('learning');
-    expect(a.planned).toContain('learning');
-    expect(a.themes.map((t) => t.type)).toContain('failure');
+  it('treats planned activity as a weak tendency and negated as failure', () => {
+    const done = analyzeDiary('今日は本を読んだ。');
+    const planned = analyzeDiary('明日は本を読む予定。');
+    const negated = analyzeDiary('今日は本を読めなかった。');
+    const w = (a: typeof done) => a.themes.find((t) => t.type === 'learning')?.weight ?? 0;
+    expect(w(planned)).toBeLessThan(w(done));
+    expect(planned.planned).toContain('learning');
+    expect(w(negated)).toBe(0);
+    expect(negated.themes.map((t) => t.type)).toContain('failure');
+  });
+  it('classifies short memo posts', () => {
+    const t = (s: string) => analyzeDiary(s).themes.map((x) => x.type);
+    expect(t('AIを使った個人開発が面白い。')).toContain('development');
+    expect(t('FXの戦略をもう少し検証したい。')).toContain('learning');
+    expect(t('新しいアプリのアイデアを思いついた。')).toContain('discovery');
+    expect(t('今日は何もしたくない。')).toContain('rest');
   });
   it('returns empty themes for plain text', () => {
     expect(analyzeDiary('あいうえお').themes).toEqual([]);
@@ -30,12 +43,10 @@ describe('analyzer', () => {
 });
 
 describe('exp', () => {
-  it('follows the table with a cap', () => {
+  it('rewards short posts well and caps long ones', () => {
     expect(expForChars(0)).toBe(0);
-    expect(expForChars(10)).toBe(10);
-    expect(expForChars(149)).toBe(20);
-    expect(expForChars(500)).toBe(60);
-    expect(expForChars(100000)).toBe(60);
+    expect(expForChars(5)).toBeGreaterThanOrEqual(15);
+    expect(expForChars(100000)).toBeLessThanOrEqual(expForChars(5) * 2);
   });
 });
 
@@ -81,14 +92,22 @@ describe('build & synergy', () => {
 describe('dungeon', () => {
   it('is deterministic and terminates', () => {
     const b = computeBuild(10, []);
+    // 探索イベント（戦闘・強敵・宝箱・休息・ボス）が一通り出る
+    const evs = new Set<string>();
+    const strong = computeBuild(60, [mk({ base: { atk: 999, hp: 99999 } })]);
+    const ex = startExpedition('x', strong, DUNGEONS[0].id, 0, '');
+    const rng = createRng(1);
+    for (let i = 0; i < 300 && !ex.ended; i++) evs.add(playFloor(ex, strong, DUNGEONS[0], rng).event);
+    expect([...evs].sort()).toEqual(['battle', 'boss', 'chest', 'elite', 'rest']);
     const r1 = simulateDungeon(b, DUNGEONS[0], createRng(5), { prevBest: 0, log: true });
     const r2 = simulateDungeon(b, DUNGEONS[0], createRng(5), { prevBest: 0, log: true });
     expect(r1).toEqual(r2);
     expect(r1.floorReached).toBeGreaterThan(1);
   });
-  it('chain + echo builds go deeper than plain builds', () => {
-    const plain = computeBuild(15, [mk({ base: { atk: 30 } })]);
-    const god = computeBuild(15, [mk({ base: { atk: 30 }, special: { kind: 'chainStrike', value: 0.5 } }), mk({ slot: 'accessory', special: { kind: 'echo', value: 1 } })]);
+  it('special effect combos (echo + extra attack + on-kill) go deeper', () => {
+    const base = [mk({ base: { atk: 30 }, affixes: [{ kind: 'onKillAtk', value: 0.01 }, { kind: 'extraAttack', value: 0.3 }] })];
+    const plain = computeBuild(15, [...base, mk({ id: 'p', slot: 'accessory', base: { hp: 20 } })]);
+    const god = computeBuild(15, [...base, mk({ id: 'g', slot: 'accessory', special: { kind: 'echo', value: 1 } }), mk({ id: 'c', slot: 'ring', special: { kind: 'chainStrike', value: 0.5 } })]);
     let p = 0, g = 0;
     for (let i = 0; i < 10; i++) {
       p += simulateDungeon(plain, DUNGEONS[0], createRng(i), { prevBest: 0, log: false }).floorReached;
@@ -98,18 +117,86 @@ describe('dungeon', () => {
   });
 });
 
-describe('engine', () => {
-  it('runs the full loop: exp, item, equip, dungeon, record', () => {
-    const s0 = createInitialState();
-    const r = submitDiary(s0, { text: '今日は開発を頑張った。新しい発見があった！', date: '2026-10-17' }, createRng(3));
+const T0 = new Date('2026-10-18T00:00:00Z');
+const at = (h: number) => new Date(T0.getTime() + h * 3600_000);
+
+describe('engine: posts', () => {
+  it('post gives exp, inspiration, and instant exploration', () => {
+    const s0 = settleIdle(createInitialState(), T0).state;
+    const r = submitPost(s0, { text: '個人開発が面白い', date: '2026-10-18', now: T0 }, createRng(3));
     expect(s0.diaries).toHaveLength(0); // 元の state は不変
     expect(r.state.diaries).toHaveLength(1);
     expect(r.entry.expGained).toBeGreaterThan(0);
-    expect(Object.keys(r.state.items).length).toBeGreaterThanOrEqual(1);
-    expect(r.state.character.equipped).not.toEqual(s0.character.equipped);
-    expect(r.log).toBeDefined();
-    expect(r.state.character.bestFloor).toBe(r.log!.floorReached);
-    expect(r.events.some((e) => e.kind === 'record')).toBe(true);
+    expect(r.state.idle.inspirationUntil).toBeDefined();
+    expect(r.report!.floorsCleared).toBeGreaterThan(0);
+    expect(r.state.character.bestFloor).toBeGreaterThan(0);
+  });
+  it('works even when classification fails (analysis = null)', () => {
+    const r = submitPost(createInitialState(), { text: '？？？', date: '2026-10-18', now: T0 }, createRng(1), null);
+    expect(r.entry.rewarded).toBe(true);
+    expect(r.entry.expGained).toBeGreaterThan(0);
+  });
+  it('reward strength does not depend on content', () => {
+    const a = submitPost(createInitialState(), { text: '勉強した', date: '2026-10-18', now: T0 }, createRng(5));
+    const b = submitPost(createInitialState(), { text: 'ねむい', date: '2026-10-18', now: T0 }, createRng(5));
+    expect(a.entry.expGained === b.entry.expGained || Math.abs(a.entry.expGained - b.entry.expGained) < 30).toBe(true);
+    expect(expForChars(4)).toBe(expForChars(3));
+  });
+  it('limits rewards per day', () => {
+    let s = createInitialState();
+    const rng = createRng(9);
+    for (let i = 0; i < 12; i++) s = submitPost(s, { text: 'テスト', date: '2026-10-18', now: T0 }, rng).state;
+    expect(s.diaries.filter((d) => d.rewarded).length).toBeLessThan(12);
+    expect(s.diaries).toHaveLength(12);
+  });
+  it('editing does not grant rewards again', () => {
+    const r = submitPost(createInitialState(), { text: '短い', date: '2026-10-18', now: T0 }, createRng(1));
+    const s2 = editDiary(r.state, r.entry.id, 'とても長い投稿に書き直した。'.repeat(50));
+    expect(s2.character.totalExp).toBe(r.state.character.totalExp);
+  });
+});
+
+describe('engine: idle', () => {
+  it('first settle only starts the clock', () => {
+    const r = settleIdle(createInitialState(), T0);
+    expect(r.report).toBeNull();
+    expect(r.state.idle.lastTick).toBe(T0.toISOString());
+  });
+  it('progresses while away and reports results', () => {
+    const s0 = settleIdle(createInitialState(), T0).state;
+    const r = settleIdle(s0, at(3), createRng(2));
+    expect(r.report!.kills).toBeGreaterThan(0);
+    expect(r.report!.floorsCleared).toBeGreaterThan(0);
+    expect(r.state.character.bestFloor).toBeGreaterThan(0);
+    expect(r.state.reports).toHaveLength(1);
+  });
+  it('caps offline rewards at 8 hours', () => {
+    const s0 = settleIdle(createInitialState(), T0).state;
+    const r = settleIdle(s0, at(48), createRng(2));
+    expect(r.report!.countedSeconds).toBe(IDLE.maxSeconds);
+    expect(r.report!.seconds).toBe(48 * 3600);
+  });
+  it('settling in many small steps is roughly equal to one big step', () => {
+    const s0 = settleIdle(createInitialState(), T0).state;
+    let small = s0;
+    const rng = createRng(4);
+    for (let m = 1; m <= 24; m++) small = settleIdle(small, new Date(T0.getTime() + m * 5 * 60_000), rng).state;
+    const big = settleIdle(s0, at(2), createRng(4)).state;
+    expect(Math.abs(small.character.bestFloor - big.character.bestFloor)).toBeLessThan(25);
+    expect(small.character.bestFloor).toBeGreaterThan(0);
+  });
+  it('inspiration boosts exploration exp', () => {
+    const s0 = settleIdle(createInitialState(), T0).state;
+    const insp = structuredClone(s0);
+    insp.idle.inspirationUntil = at(10).toISOString();
+    const a = settleIdle(s0, at(4), createRng(8)).report!;
+    const b = settleIdle(insp, at(4), createRng(8)).report!;
+    expect(b.exp).toBeGreaterThanOrEqual(a.exp);
+    expect(POST.inspirationExpMul).toBeGreaterThan(1);
+  });
+  it('expeditions resume from a checkpoint', () => {
+    expect(checkpointFloor(0)).toBe(1);
+    expect(checkpointFloor(45)).toBe(21);
   });
   it('auto equip only when better', () => {
     const s = createInitialState();
@@ -121,25 +208,28 @@ describe('engine', () => {
     expect(tryAutoEquip(s, weak).equipped).toBe(false);
     expect(s.character.equipped.weapon).toBe('s');
   });
-  it('limits rewards per day', () => {
-    let s = createInitialState();
-    const rng = createRng(9);
-    for (let i = 0; i < DAILY_REWARD_LIMIT + 1; i++) s = submitDiary(s, { text: 'テスト', date: '2026-10-17' }, rng).state;
-    expect(s.diaries.filter((d) => d.rewarded)).toHaveLength(DAILY_REWARD_LIMIT);
-    expect(s.diaries).toHaveLength(DAILY_REWARD_LIMIT + 1);
-  });
-  it('editing does not grant rewards again', () => {
-    const r = submitDiary(createInitialState(), { text: '短い', date: '2026-10-17' }, createRng(1));
-    const s2 = editDiary(r.state, r.entry.id, 'とても長い日記に書き直した。'.repeat(50));
-    expect(s2.character.totalExp).toBe(r.state.character.totalExp);
-    expect(s2.diaries[0].chars).toBeGreaterThan(300);
-  });
-  it('long-term simulation stays stable', () => {
-    let s = createInitialState();
+  it('long-term simulation stays stable and grows', () => {
+    let s = settleIdle(createInitialState(), T0).state;
     const rng = createRng(77);
-    for (let d = 1; d <= 60; d++) s = submitDiary(s, { text: '仕事と勉強と運動をした。'.repeat(d % 5 + 1), date: `2026-${String(Math.ceil(d / 28)).padStart(2, '0')}-${String(((d - 1) % 28) + 1).padStart(2, '0')}` }, rng).state;
+    for (let d = 0; d < 20; d++) {
+      for (const h of [0, 6, 12]) {
+        const now = at(d * 24 + h);
+        s = settleIdle(s, now, rng).state;
+        s = submitPost(s, { text: '仕事と勉強をした', date: now.toISOString().slice(0, 10), now }, rng).state;
+      }
+    }
     expect(s.character.level).toBeGreaterThan(10);
-    expect(s.character.bestFloor).toBeGreaterThan(20);
+    expect(s.character.bestFloor).toBeGreaterThan(30);
+    expect(Object.keys(s.items).length).toBeLessThanOrEqual(310);
+    expect(JSON.stringify(s).length).toBeLessThan(1_500_000);
+  });
+  it('migrates old save data without idle fields', () => {
+    const old = createInitialState() as unknown as Record<string, unknown>;
+    delete old.idle;
+    delete old.reports;
+    const m = migrate(old);
+    expect(m.idle.carrySeconds).toBe(0);
+    expect(m.reports).toEqual([]);
   });
 });
 

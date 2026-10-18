@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { DUNGEON_BY_ID, RARITY_INFO, TAG_INFO, THEME_PROFILES } from '../game/config';
 import { describeAffix, describeSpecial } from '../game/items';
-import type { AdventureLog, Item, LogEvent, Slot, Theme } from '../game/types';
+import type { AdventureLog, Expedition, IdleReport, Item, LogEvent, Slot, Theme } from '../game/types';
 import { PixelSprite } from './PixelSprite';
 
 export const SLOT_LABEL: Record<Slot, string> = { weapon: '武器', armor: '防具', ring: '指輪', accessory: '装飾' };
@@ -57,6 +57,7 @@ export function ItemCard({ item, equipped, compact }: { item: Item; equipped?: b
             <span className={`rar r-${item.rarity}`}>{RARITY_INFO[item.rarity].label}</span>
             <span>{SLOT_LABEL[item.slot]}</span>
             <span>iLv{item.ilvl}</span>
+            {item.floor ? <span>{item.floor}階で入手</span> : null}
             {item.tags.map((t) => (
               <span key={t} className="tag" style={{ color: TAG_INFO[t].color, borderColor: TAG_INFO[t].color }}>
                 {TAG_INFO[t].label}
@@ -123,32 +124,103 @@ export function RunSummary({ log }: { log: AdventureLog }) {
   );
 }
 
-/** ダンジョンの一場面（主人公と最後に遭遇した敵） */
-export function Scene({ log, animate }: { log?: AdventureLog; animate?: boolean }) {
-  const d = log ? DUNGEON_BY_ID[log.dungeonId] : undefined;
-  const enemy = log?.lastEnemy;
+/** ダンジョンの一場面（主人公と、いま探索中の階層のイベント） */
+export function Scene({ expedition, log, maxHp, inspiredUntil, animate }: {
+  expedition?: Expedition;
+  log?: AdventureLog;
+  maxHp: number;
+  inspiredUntil?: string;
+  animate?: boolean;
+}) {
+  const dungeonId = expedition?.dungeonId ?? log?.dungeonId;
+  const d = dungeonId ? DUNGEON_BY_ID[dungeonId] : undefined;
+  const floor = expedition ? expedition.floor : log ? log.floorReached + 1 : 0;
+  const ev = expedition?.lastEvent;
+  const enemy = expedition?.lastEnemy ?? log?.lastEnemy;
+  const hpPct = expedition ? Math.max(0, Math.min(100, (expedition.hp / maxHp) * 100)) : 100;
+  const inspiredMin = inspiredUntil ? Math.round((new Date(inspiredUntil).getTime() - Date.now()) / 60000) : 0;
   return (
     <div
       className={`scene ${animate ? 'scene-fight' : ''}`}
       style={{ ['--bg' as string]: d?.color ?? '#1d2233', ['--floor' as string]: d?.floorColor ?? '#2a3149' }}
     >
-      <div className="scene-title">{d ? `${d.name}　${log!.floorReached + 1}階` : 'はじまりの村'}</div>
+      <div className="scene-title">{d ? `${d.name}　第${floor}階層` : 'はじまりの村'}</div>
+      {inspiredMin > 0 && <div className="scene-buff">ひらめき 残り{inspiredMin >= 60 ? `${Math.floor(inspiredMin / 60)}時間${inspiredMin % 60}分` : `${inspiredMin}分`}</div>}
       <div className="scene-stage">
         <div className="sprite-hero bob">
           <PixelSprite name="hero" scale={5} title="主人公" />
+          {expedition && (
+            <div className="hp-bar" aria-label={`HP ${Math.round(hpPct)}%`}>
+              <div style={{ width: `${hpPct}%` }} />
+            </div>
+          )}
         </div>
-        {enemy ? (
-          <div className={`sprite-enemy bob2 ${enemy.boss ? 'boss' : ''}`}>
+        {ev === 'chest' ? (
+          <div className="sprite-enemy"><PixelSprite name="chest" scale={4} title="宝箱" /><div className="enemy-name">宝箱</div></div>
+        ) : ev === 'rest' ? (
+          <div className="sprite-enemy flicker"><PixelSprite name="campfire" scale={4} title="休息ポイント" /><div className="enemy-name">休息ポイント</div></div>
+        ) : enemy ? (
+          <div className={`sprite-enemy bob2 ${enemy.boss ? 'boss' : ''} ${enemy.name.startsWith('強敵') ? 'elite' : ''}`}>
             <PixelSprite name={enemy.sprite} scale={enemy.boss ? 6 : 4} flip title={enemy.name} />
             <div className="enemy-name">{enemy.name}</div>
           </div>
         ) : (
           <div className="sprite-enemy bob2">
             <PixelSprite name="slime" scale={4} title="スライム" />
-            <div className="enemy-name">{log ? '' : '日記を書くと冒険が始まる'}</div>
+            <div className="enemy-name">まもなく探索開始</div>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+export function formatDuration(sec: number): string {
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m}分`;
+  const h = Math.floor(m / 60);
+  return `${h}時間${m % 60 ? `${m % 60}分` : ''}`;
+}
+
+/** 放置中の戦果まとめ（起動時に表示） */
+export function ReportView({ report, items, onClose }: { report: IdleReport; items: Record<string, Item>; onClose?: () => void }) {
+  const got = report.itemIds.map((id) => items[id]).filter((x): x is Item => !!x);
+  const rare = got.filter((i) => i.rarity === 'rare' || i.rarity === 'legendary' || i.special);
+  const capped = report.seconds > report.countedSeconds;
+  return (
+    <div className="report">
+      <div className="report-head">
+        <div className="report-title">{report.source === 'post' ? '探索の成果' : 'おかえりなさい'}</div>
+        <div className="muted small">
+          {formatDuration(report.seconds)}の間に探索が進みました{capped ? `（報酬対象は最大${formatDuration(report.countedSeconds)}）` : ''}
+        </div>
+      </div>
+      {report.bestTo > report.bestFrom && (
+        <div className="report-record">最高到達階層を更新！ {report.bestFrom}階 → <b>{report.bestTo}階</b></div>
+      )}
+      <div className="report-grid">
+        <div><small>撃破数</small><b>{report.kills}</b></div>
+        <div><small>突破階層</small><b>{report.floorsCleared}</b></div>
+        <div><small>最深</small><b>{report.deepest ? `${report.deepest}階` : '-'}</b></div>
+        <div><small>ボス撃破</small><b>{report.bosses}</b></div>
+        <div><small>獲得装備</small><b>{got.length}</b></div>
+        <div><small>経験値</small><b>+{report.exp}</b></div>
+      </div>
+      <div className="report-sub muted small">
+        宝箱 {report.chests} ・ 強敵 {report.elites} ・ 休息 {report.rests} ・ 探索 {report.expeditions}回
+        {report.levelTo > report.levelFrom && ` ・ Lv.${report.levelFrom}→${report.levelTo}`}
+      </div>
+      {rare.length > 0 && (
+        <div className="report-items">
+          {rare.slice(0, 6).map((it) => <ItemCard key={it.id} item={it} compact />)}
+        </div>
+      )}
+      {report.highlights.length > 0 && (
+        <ul className="log-list animate">
+          {report.highlights.map((e, i) => <LogLine key={i} e={e} delay={i * 220} />)}
+        </ul>
+      )}
+      {onClose && <button className="primary-btn" onClick={onClose}>冒険を続ける</button>}
     </div>
   );
 }

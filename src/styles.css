@@ -239,3 +239,87 @@ hr { border: none; border-top: 2px dashed var(--line); margin: 16px 0; }
 .tabbar button svg { opacity: 0.55; }
 .tabbar button.on { color: var(--accent); }
 .tabbar button.on svg { opacity: 1; }
+
+/* ---------- v0.2: 短文投稿・放置進行 ---------- */
+.composer { padding: 10px 12px; }
+.post-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--line);
+  padding: 6px 2px 8px;
+  font-family: 'Hiragino Sans', system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.6;
+  resize: none;
+  field-sizing: content;
+  min-height: 3.4em;
+  max-height: 12em;
+}
+.post-input:focus { outline: none; border-bottom-color: var(--blue); }
+.composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.post-btn {
+  padding: 8px 22px; border-radius: 999px; border: 2px solid #000;
+  background: linear-gradient(#ffcf3a, #e0a91a); color: #2a1d00; font-size: 15px;
+  box-shadow: 0 3px 0 #000; flex: none;
+}
+.post-btn:disabled { background: #4a4f60; color: #8b93a8; }
+.post-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 #000; }
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline li { padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.timeline li:last-child { border-bottom: none; }
+.timeline p, .post-text { margin: 2px 0 0; font-family: 'Hiragino Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.post-text.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.post-group { padding: 4px 12px; }
+.post-item { padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.post-item:last-child { border-bottom: none; }
+.post-meta { display: flex; gap: 10px; font-size: 12px; color: var(--muted); }
+
+.scene-buff {
+  position: absolute; top: 8px; right: 10px; z-index: 2;
+  font-size: 11px; padding: 2px 8px; border-radius: 2px;
+  background: rgba(155, 123, 255, 0.35); border: 1px solid #9b7bff; color: #efe8ff;
+}
+.hp-bar { width: 64px; height: 6px; margin-top: 4px; background: #0d1018; border: 1px solid #000; }
+.hp-bar div { height: 100%; background: #4fd06a; transition: width 0.6s steps(8); }
+.sprite-enemy.elite svg { filter: drop-shadow(0 0 4px #ffb02e); }
+.flicker { animation: flicker 0.5s steps(2) infinite; }
+@keyframes flicker { 50% { filter: brightness(1.25); } }
+
+.modal {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(6, 8, 14, 0.72);
+  padding: env(safe-area-inset-top) 0 0;
+  animation: fadeIn 0.2s ease-out;
+}
+.modal-body {
+  width: 100%; max-width: 560px; max-height: 88dvh; overflow-y: auto;
+  background: var(--panel); border-top: 3px solid var(--accent);
+  border-radius: 10px 10px 0 0;
+  padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  animation: slideUp 0.3s steps(6);
+}
+@keyframes fadeIn { from { opacity: 0; } }
+@keyframes slideUp { from { transform: translateY(40px); } }
+.report { display: flex; flex-direction: column; gap: 12px; }
+.report-title { font-size: 20px; color: var(--accent); text-shadow: 2px 2px 0 #000; }
+.report-record {
+  padding: 10px 12px; text-align: center; font-size: 16px;
+  background: linear-gradient(90deg, rgba(255, 122, 47, 0.3), rgba(255, 216, 74, 0.15));
+  border: 2px solid var(--r-legendary); color: #fff3c4;
+  animation: glow 1.6s ease-in-out infinite;
+}
+.report-record b { font-size: 22px; font-weight: normal; color: var(--accent); }
+.report-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+.report-grid > div { background: #0f131d; border-radius: 4px; padding: 8px 4px; }
+.report-grid small { display: block; color: var(--muted); font-size: 11px; }
+.report-grid b { font-weight: normal; font-size: 18px; font-variant-numeric: tabular-nums; }
+.report-items { display: flex; flex-direction: column; gap: 6px; }
+.report-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .log-list.animate .log { opacity: 1; }
+}

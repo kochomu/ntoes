@@ -1,4 +1,4 @@
-// 端末内保存（localStorage）。日記は外部に送信しない。
+// 端末内保存（localStorage）。投稿は外部に送信しない。
 import { createInitialState } from '../game/engine';
 import type { GameState } from '../game/types';
 
@@ -40,7 +40,14 @@ export function migrate(data: unknown): GameState {
   const s = data as GameState;
   if (!s || s.version !== 1 || !s.character || !Array.isArray(s.diaries)) throw new Error('invalid save data');
   const base = createInitialState();
-  return { ...base, ...s, character: { ...base.character, ...s.character, equipped: { ...base.character.equipped, ...s.character.equipped } } };
+  return {
+    ...base,
+    ...s,
+    character: { ...base.character, ...s.character, equipped: { ...base.character.equipped, ...s.character.equipped } },
+    // v0.2 で追加：放置進行。旧データは「今」から放置カウントを開始する（過去分を遡って付与しない）
+    idle: { ...base.idle, ...(s.idle ?? {}) },
+    reports: s.reports ?? [],
+  };
 }
 
 export function exportJson(state: GameState): string {

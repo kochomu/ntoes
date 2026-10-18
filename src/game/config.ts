@@ -1,41 +1,88 @@
 // ゲームバランス・テーブル類。数値調整はこのファイルだけで完結するようにしている。
 import type { AffixKind, Rarity, Slot, SpecialKind, SynergyTag, Theme } from './types';
 
-// ---------- 日記・経験値 ----------
-/** [最小文字数, 獲得EXP] 降順で評価 */
+// ---------- 投稿・経験値 ----------
+/** [最小文字数, 獲得EXP] 降順で評価。短文でも十分もらえ、長文の優位は小さい */
 export const EXP_TABLE: [number, number][] = [
-  [500, 60],
-  [300, 50],
-  [150, 35],
-  [50, 20],
-  [1, 10],
+  [140, 30],
+  [60, 26],
+  [20, 22],
+  [1, 18],
 ];
-/** 1日に報酬（EXP・ドロップ・攻略）を得られる日記の数 */
-export const DAILY_REWARD_LIMIT = 3;
+/** 1日に報酬（EXP・ドロップ・ひらめき）を得られる投稿の数 */
+export const DAILY_REWARD_LIMIT = 10;
 
 export const expToNext = (level: number) => Math.round(40 * Math.pow(1.1, level - 1));
 
+/** レベルは基礎的な成長のみ担当（装備の方が伸び幅が大きい） */
 export const LEVEL_STATS = {
-  atk: (lv: number) => 10 + 3 * (lv - 1),
-  def: (lv: number) => 4 + 1.5 * (lv - 1),
-  hp: (lv: number) => 60 + 12 * (lv - 1),
+  atk: (lv: number) => 10 + 2 * (lv - 1),
+  def: (lv: number) => 4 + 1 * (lv - 1),
+  hp: (lv: number) => 60 + 8 * (lv - 1),
   crit: 0.05,
   critMul: 1.6,
 };
 
+/** アイテムレベル：深い階層ほど強い装備が出る */
+export const itemLevelFor = (level: number, floor: number) => 1 + Math.floor(floor / 3) + Math.floor(level / 4);
+
+// ---------- 投稿の報酬 ----------
+export const POST = {
+  /** 投稿で装備を拾う確率（レアリティ抽選は通常どおり。短文でもレジェンダリーの可能性あり） */
+  dropChance: 0.6,
+  /** 投稿するとその場で探索が進む秒数 */
+  instantExploreSeconds: 10 * 60,
+  /** 「ひらめき」効果：投稿ごとに延長する時間と上限 */
+  inspirationSeconds: 2 * 3600,
+  inspirationMaxSeconds: 8 * 3600,
+  /** ひらめき中の探索ボーナス */
+  inspirationExpMul: 1.5,
+  inspirationChestMul: 1.6,
+  /** ダンジョン傾向に反映する投稿の期間と減衰 */
+  themeWindowHours: 72,
+  themeHalfLifeHours: 24,
+};
+
+// ---------- 放置・探索 ----------
+export const IDLE = {
+  /** 報酬計算の対象となる最大放置時間 */
+  maxSeconds: 8 * 3600,
+  /** 各イベントにかかる探索時間（秒） */
+  floorSeconds: { battle: 120, elite: 180, chest: 40, rest: 40, boss: 240 } as Record<string, number>,
+  /** 敗北後、次の探索に出るまでの時間 */
+  returnSeconds: 600,
+  /** 次の探索は「最高到達階層×この割合」付近のボス階層の次から始める（序盤の周回を省略） */
+  checkpointRatio: 0.5,
+  /** 階層突破ごとの経験値 */
+  expPerFloor: 0.15,
+  expPerBoss: 2,
+  /** 1回の精算で手に入る装備の上限（超えた宝箱は経験値に変換） */
+  itemCapPerSettle: 30,
+  chestOverflowExp: 3,
+  /** 起動時に結果画面を出す最小放置時間（秒） */
+  reportMinSeconds: 10 * 60,
+  /** アプリを開いている間の自動精算間隔（ミリ秒） */
+  liveTickMs: 30 * 1000,
+  /** 保存する探索記録・レポートの上限 */
+  maxLogs: 300,
+  maxReports: 60,
+};
+
+// ---------- 探索イベント ----------
+export const FLOOR_EVENTS = {
+  weights: { battle: 72, elite: 14, chest: 2, rest: 12 } as Record<'battle' | 'elite' | 'chest' | 'rest', number>,
+  elite: { hp: 2.4, atk: 1.25, def: 1.2 },
+  restHeal: 0.35,
+  drop: { battle: 0.005, elite: 0.08, boss: 0.15 },
+  rarityBoost: { chest: 0.4, elite: 0.3, boss: 0.6, battle: 0 },
+};
+
 // ---------- ドロップ ----------
 export const DROPS = {
-  base: 1,
-  /** この文字数以上でボーナス抽選 */
-  bonusChars: 300,
-  bonusChance: 0.5,
-  /** ボス撃破時のドロップ率と1回の攻略での上限 */
-  bossDropChance: 0.6,
-  bossDropMax: 2,
   /** テーマに沿った装備になる確率（残りは完全ランダム） */
   themeInfluence: 0.65,
-  /** 未装備アイテムの保持上限（超えたら古いNormalから削除） */
-  inventoryCap: 400,
+  /** 未装備アイテムの保持上限（超えたら価値の低いものから削除。レジェンダリーは削除しない） */
+  inventoryCap: 300,
 };
 
 export const RARITY_WEIGHTS: Record<Rarity, number> = {
@@ -77,10 +124,10 @@ export const ITEM_BASES: ItemBaseDef[] = [
 
 /** スロット別の基礎能力（ilvl に応じて伸びる） */
 export const SLOT_BASE: Record<Slot, (ilvl: number) => { atk?: number; def?: number; hp?: number; crit?: number }> = {
-  weapon: (l) => ({ atk: 4 + l * 2 }),
-  armor: (l) => ({ def: 2 + l * 1.2, hp: 10 + l * 8 }),
-  ring: (l) => ({ atk: 1 + l * 0.6, crit: 0.03 }),
-  accessory: (l) => ({ hp: 8 + l * 5, def: 1 + l * 0.4 }),
+  weapon: (l) => ({ atk: 4 + l * 2.6 }),
+  armor: (l) => ({ def: 2 + l * 1.4, hp: 10 + l * 10 }),
+  ring: (l) => ({ atk: 1 + l * 0.8, crit: 0.03 }),
+  accessory: (l) => ({ hp: 8 + l * 6, def: 1 + l * 0.5 }),
 };
 
 // ---------- 追加効果 ----------
@@ -148,7 +195,7 @@ export const COMBAT = {
   onKillCap: 400,
   retryStackMax: 5,
   /** 装備評価に使うシミュレーション回数 */
-  evalRuns: 6,
+  evalRuns: 5,
 };
 
 // ---------- シナジー ----------
@@ -202,15 +249,17 @@ export interface DungeonDef {
   enemies: { name: string; sprite: string }[];
   boss: { name: string; sprite: string }[];
   dropThemes: Theme[];
+  /** 探索イベントの出やすさ補正 */
+  eventBias?: Partial<Record<'battle' | 'elite' | 'chest' | 'rest', number>>;
 }
 export const DUNGEONS: DungeonDef[] = [
-  { id: 'library', name: '忘却された図書館', color: '#2a2440', floorColor: '#3b3157', mods: { hp: 1.2, atk: 0.9, def: 1 }, enemies: [{ name: '彷徨う頁', sprite: 'book' }, { name: 'インクスライム', sprite: 'slime' }], boss: [{ name: '禁書の番人', sprite: 'book' }], dropThemes: ['learning', 'discovery'] },
-  { id: 'gearworks', name: '歯車仕掛けの迷宮', color: '#2b2a24', floorColor: '#4a4232', mods: { hp: 1, atk: 1, def: 1.25 }, enemies: [{ name: 'ゼンマイ兵', sprite: 'golem' }, { name: '油まみれスライム', sprite: 'slime' }], boss: [{ name: '大時計の機神', sprite: 'golem' }], dropThemes: ['development', 'work'] },
-  { id: 'volcano', name: '試練の火山', color: '#3a1d17', floorColor: '#5c2a1c', mods: { hp: 0.9, atk: 1.2, def: 0.9 }, enemies: [{ name: '火の小鬼', sprite: 'imp' }, { name: '溶岩スライム', sprite: 'slime' }], boss: [{ name: '紅蓮の試練王', sprite: 'imp' }], dropThemes: ['challenge', 'exercise'] },
-  { id: 'shadow', name: '影の回廊', color: '#16151f', floorColor: '#25233a', mods: { hp: 1, atk: 1.1, def: 1 }, enemies: [{ name: '後悔の影', sprite: 'wraith' }, { name: '影スライム', sprite: 'slime' }], boss: [{ name: 'もう一人の自分', sprite: 'wraith' }], dropThemes: ['failure', 'rest'] },
-  { id: 'ruins', name: '霧深き古代遺跡', color: '#1f2b2a', floorColor: '#33463f', mods: { hp: 1.1, atk: 1, def: 1.1 }, enemies: [{ name: '石の守護者', sprite: 'golem' }, { name: '苔むしたキノコ', sprite: 'mushroom' }], boss: [{ name: '霧の古代王', sprite: 'wraith' }], dropThemes: ['discovery', 'travel'] },
-  { id: 'garden', name: '陽だまりの庭園', color: '#1f3322', floorColor: '#2f4d30', mods: { hp: 1.05, atk: 0.95, def: 1 }, enemies: [{ name: 'おしゃべりキノコ', sprite: 'mushroom' }, { name: '花スライム', sprite: 'slime' }], boss: [{ name: '大樹の精', sprite: 'mushroom' }], dropThemes: ['social', 'hobby', 'rest'] },
+  { id: 'library', name: '忘却された図書館', color: '#2a2440', floorColor: '#3b3157', mods: { hp: 1.2, atk: 0.9, def: 1 }, enemies: [{ name: '彷徨う頁', sprite: 'book' }, { name: 'インクスライム', sprite: 'slime' }], boss: [{ name: '禁書の番人', sprite: 'book' }], dropThemes: ['learning', 'discovery'], eventBias: { chest: 1.4 } },
+  { id: 'gearworks', name: '歯車仕掛けの迷宮', color: '#2b2a24', floorColor: '#4a4232', mods: { hp: 1, atk: 1, def: 1.25 }, enemies: [{ name: 'ゼンマイ兵', sprite: 'golem' }, { name: '油まみれスライム', sprite: 'slime' }], boss: [{ name: '大時計の機神', sprite: 'golem' }], dropThemes: ['development', 'work'], eventBias: { elite: 1.3 } },
+  { id: 'volcano', name: '試練の火山', color: '#3a1d17', floorColor: '#5c2a1c', mods: { hp: 0.9, atk: 1.2, def: 0.9 }, enemies: [{ name: '火の小鬼', sprite: 'imp' }, { name: '溶岩スライム', sprite: 'slime' }], boss: [{ name: '紅蓮の試練王', sprite: 'imp' }], dropThemes: ['challenge', 'exercise'], eventBias: { elite: 1.6, rest: 0.7 } },
+  { id: 'shadow', name: '影の回廊', color: '#16151f', floorColor: '#25233a', mods: { hp: 1, atk: 1.1, def: 1 }, enemies: [{ name: '後悔の影', sprite: 'wraith' }, { name: '影スライム', sprite: 'slime' }], boss: [{ name: 'もう一人の自分', sprite: 'wraith' }], dropThemes: ['failure', 'rest'], eventBias: { elite: 1.2, chest: 1.2 } },
+  { id: 'ruins', name: '霧深き古代遺跡', color: '#1f2b2a', floorColor: '#33463f', mods: { hp: 1.1, atk: 1, def: 1.1 }, enemies: [{ name: '石の守護者', sprite: 'golem' }, { name: '苔むしたキノコ', sprite: 'mushroom' }], boss: [{ name: '霧の古代王', sprite: 'wraith' }], dropThemes: ['discovery', 'travel'], eventBias: { chest: 1.7 } },
+  { id: 'garden', name: '陽だまりの庭園', color: '#1f3322', floorColor: '#2f4d30', mods: { hp: 1.05, atk: 0.95, def: 1 }, enemies: [{ name: 'おしゃべりキノコ', sprite: 'mushroom' }, { name: '花スライム', sprite: 'slime' }], boss: [{ name: '大樹の精', sprite: 'mushroom' }], dropThemes: ['social', 'hobby', 'rest'], eventBias: { rest: 1.8, elite: 0.7 } },
 ];
 export const DUNGEON_BY_ID = Object.fromEntries(DUNGEONS.map((d) => [d.id, d])) as Record<string, DungeonDef>;
 /** テーマに関わらず選ばれる確率 */
-export const DUNGEON_RANDOM_CHANCE = 0.25;
+export const DUNGEON_RANDOM_CHANCE = 0.3;

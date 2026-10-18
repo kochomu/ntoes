@@ -1,6 +1,6 @@
 {
-  "name": "日記ダンジョン",
-  "short_name": "日記ダンジョン",
+  "name": "LIFE DUNGEON",
+  "short_name": "LIFE DUNGEON",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
