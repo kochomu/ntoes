@@ -111,6 +111,7 @@ function PostItem({ d, state, open, toggle, onEdit, onColor }: { d: DiaryEntry; 
         </>
       )}
       </div>
+      {d.color && <button className="clear-color-btn" onClick={() => onColor(d.id, undefined)} aria-label={`${state.colorLabels?.[d.color] ?? DEFAULT_COLOR_LABEL[d.color]}の色を解除`}>色解除</button>}
     </div>
   );
 }
