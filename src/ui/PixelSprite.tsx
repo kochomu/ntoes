@@ -1,8 +1,10 @@
 import { memo } from 'react';
-import { SPRITES } from './sprites';
+import { SPRITES, type SpriteDef } from './sprites';
 
 interface Props {
   name: string;
+  /** 動的に組み立てたドット絵（主人公の装備反映など） */
+  sprite?: SpriteDef;
   /** 1ドットあたりのpx */
   scale?: number;
   className?: string;
@@ -13,8 +15,8 @@ interface Props {
 }
 
 /** 文字列グリッドのドット絵を SVG で描画（横方向の同色ランを1矩形にまとめる） */
-export const PixelSprite = memo(function PixelSprite({ name, scale = 4, className, silhouette, flip, title }: Props) {
-  const sp = SPRITES[name];
+export const PixelSprite = memo(function PixelSprite({ name, sprite, scale = 4, className, silhouette, flip, title }: Props) {
+  const sp = sprite ?? SPRITES[name];
   if (!sp) return null;
   const h = sp.rows.length;
   const w = sp.rows[0].length;

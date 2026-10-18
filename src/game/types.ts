@@ -36,7 +36,9 @@ export interface Affix {
 
 export type SpecialKind =
   | 'chainStrike' | 'echo' | 'momentum' | 'floorRegen' | 'expAmp'
-  | 'phoenix' | 'resonance' | 'doubleStrike' | 'giantSlayer';
+  | 'phoenix' | 'resonance' | 'doubleStrike' | 'giantSlayer'
+  // 夢限定
+  | 'dreamWalk' | 'lucid' | 'dejavu' | 'dreamEater';
 
 export interface Special {
   kind: SpecialKind;
@@ -66,9 +68,11 @@ export interface Item {
   tags: SynergyTag[];
   acquiredAt: string;
   diaryId?: string;
-  source: 'diary' | 'boss' | 'chest' | 'elite' | 'battle';
+  source: 'diary' | 'boss' | 'chest' | 'elite' | 'battle' | 'dream';
   /** 入手した階層（探索ドロップのみ） */
   floor?: number;
+  /** 夢の記録から生まれた限定アイテム */
+  dream?: boolean;
 }
 
 export type LogLevel = 'detail' | 'normal' | 'important' | 'epic';
@@ -111,7 +115,14 @@ export interface DiaryEntry {
   logIds: string[];
   /** 投稿時の結果ログ（v2以降の投稿） */
   events?: LogEvent[];
+  /** 'dream' は夢の記録 */
+  kind?: 'post' | 'dream';
+  /** 振り分け用の色ラベル */
+  color?: PostColor;
 }
+
+export const POST_COLORS = ['red', 'yellow', 'green', 'blue', 'purple'] as const;
+export type PostColor = (typeof POST_COLORS)[number];
 
 export interface Character {
   level: number;
@@ -148,6 +159,8 @@ export interface Expedition {
   lastEnemy?: { name: string; sprite: string; boss: boolean };
   lastEvent?: FloorEvent;
   ended?: 'defeat' | 'stalemate' | 'cap';
+  /** 夢アイテム「悪夢を喰らう」で積み上がった攻撃力倍率 */
+  dreamAtk?: number;
   events: LogEvent[];
   itemIds: string[];
 }

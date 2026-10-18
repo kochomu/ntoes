@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { ITEM_BASES, RARITY_INFO, TAG_INFO } from '../game/config';
-import { currentBuild } from '../game/engine';
+import { currentBuild, equippedItems } from '../game/engine';
+import { fmtNum } from '../game/dungeon';
+import { heroAura, heroSprite } from './heroSprite';
 import { powerRating } from '../game/stats';
 import type { GameState, Rarity, Slot } from '../game/types';
 import { RARITIES, SLOTS } from '../game/types';
@@ -16,6 +18,8 @@ export function Equipment({ state }: { state: GameState }) {
   const ch = state.character;
   const b = currentBuild(state);
   const equippedIds = new Set(Object.values(ch.equipped));
+  const equippedList = equippedItems(state);
+  const aura = heroAura(equippedList);
   const items = Object.values(state.items)
     .filter((i) => (slot === 'all' || i.slot === slot) && (rarity === 'all' || i.rarity === rarity))
     .sort((a, b2) => b2.acquiredAt.localeCompare(a.acquiredAt) || b2.id.localeCompare(a.id));
@@ -31,12 +35,12 @@ export function Equipment({ state }: { state: GameState }) {
       {tab === 'equip' && (
         <>
           <section className="card hero-card">
-            <PixelSprite name="hero" scale={6} />
+            <div className={aura ? `aura-${aura}` : ''}><PixelSprite name="hero" sprite={heroSprite(equippedList)} scale={6} /></div>
             <div className="stat-table">
-              <div><small>戦闘力</small><b>{powerRating(b).toLocaleString()}</b></div>
-              <div><small>攻撃力</small><b>{Math.round(b.atk)}</b></div>
-              <div><small>防御力</small><b>{Math.round(b.def)}</b></div>
-              <div><small>最大HP</small><b>{b.hp}</b></div>
+              <div><small>戦闘力</small><b>{fmtNum(powerRating(b))}</b></div>
+              <div><small>攻撃力</small><b>{fmtNum(b.atk)}</b></div>
+              <div><small>防御力</small><b>{fmtNum(b.def)}</b></div>
+              <div><small>最大HP</small><b>{fmtNum(b.hp)}</b></div>
               <div><small>会心</small><b>{pct(b.crit)} ×{b.critMul.toFixed(1)}</b></div>
               <div><small>追加攻撃</small><b>{pct(b.extraAttack)}</b></div>
               {b.chainChance > 0 && <div><small>連鎖</small><b>{pct(b.chainChance)} 上限{b.chainLimit}</b></div>}
@@ -104,6 +108,11 @@ export function Equipment({ state }: { state: GameState }) {
               );
             })}
           </div>
+          <div className="card-title" style={{ marginTop: 16 }}>夢のアイテム</div>
+          {Object.values(state.items).filter((i) => i.dream).length === 0 && <p className="muted small">夢を記録すると、夢でしか手に入らない装備が見つかる…</p>}
+          {Object.values(state.items)
+            .filter((i) => i.dream)
+            .map((it) => <ItemCard key={it.id} item={it} equipped={equippedIds.has(it.id)} compact />)}
           <div className="card-title" style={{ marginTop: 16 }}>レジェンダリー</div>
           {Object.values(state.items).filter((i) => i.rarity === 'legendary').length === 0 && <p className="muted small">まだ見ぬ伝説が眠っている…</p>}
           {Object.values(state.items)

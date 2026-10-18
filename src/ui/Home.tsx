@@ -1,15 +1,19 @@
 import { useState } from 'react';
-import { DAILY_REWARD_LIMIT, expToNext } from '../game/config';
-import { countChars, currentBuild, expForChars, rewardedCountOn, type PostResult } from '../game/engine';
+import { DAILY_REWARD_LIMIT, DREAM, expToNext } from '../game/config';
+import { canRecordDream, countChars, currentBuild, equippedItems, expForChars, rewardedCountOn, type PostResult } from '../game/engine';
+import { fmtNum } from '../game/dungeon';
+import { PixelSprite } from './PixelSprite';
 import { powerRating } from '../game/stats';
 import type { GameState } from '../game/types';
 import { SLOTS } from '../game/types';
-import { ItemIcon, LogList, SLOT_LABEL, Scene, ThemeChips, formatTime, todayStr } from './common';
+import { CombatFeed, ItemIcon, LogList, SLOT_LABEL, Scene, ThemeChips, formatTime, todayStr } from './common';
 
 interface Props {
   state: GameState;
-  onPost: (text: string) => PostResult;
+  onPost: (text: string, kind: 'post' | 'dream') => PostResult;
   goto: (tab: string) => void;
+  npc?: string;
+  combat: { id: number; text: string }[];
 }
 
 const DRAFT_KEY = 'diary-rpg:draft';
@@ -23,15 +27,18 @@ function loadDraft() {
   }
 }
 
-export function Home({ state, onPost, goto }: Props) {
+export function Home({ state, onPost, goto, npc, combat }: Props) {
   const [text, setText] = useState(loadDraft);
   const [result, setResult] = useState<PostResult | null>(null);
   const [placeholder] = useState(() => PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
+  const [mode, setMode] = useState<'post' | 'dream'>('post');
   const ch = state.character;
   const build = currentBuild(state);
   const chars = countChars(text);
   const today = todayStr();
   const remaining = Math.max(0, DAILY_REWARD_LIMIT - rewardedCountOn(state, today));
+  const dreamOk = canRecordDream(state, today);
+  const equipped = equippedItems(state);
   const need = expToNext(ch.level);
   const lastLog = state.logs[state.logs.length - 1];
   const recentPosts = [...state.diaries].slice(-5).reverse();
@@ -48,13 +55,14 @@ export function Home({ state, onPost, goto }: Props) {
 
   const submit = () => {
     if (!text.trim()) return;
-    setResult(onPost(text.trim()));
+    setResult(onPost(text.trim(), mode === 'dream' && dreamOk ? 'dream' : 'post'));
     updateText('');
+    setMode('post');
   };
 
   return (
     <div className="screen">
-      <section className="card composer">
+      <section className={`card composer ${mode === 'dream' ? 'dream-mode' : ''}`}>
         <textarea
           className="post-input"
           value={text}
@@ -62,13 +70,25 @@ export function Home({ state, onPost, goto }: Props) {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
           }}
-          placeholder={placeholder}
+          placeholder={mode === 'dream' ? 'どんな夢を見た？（1日1回・夢限定アイテムがもらえる）' : placeholder}
           rows={2}
           maxLength={2000}
         />
         <div className="composer-foot">
-          <span className="muted small">{remaining > 0 ? `+${expForChars(chars) || expForChars(1)} EXP ・ 残り${remaining}回` : '今日の報酬は上限（投稿は保存されます）'}</span>
-          <button className="post-btn" disabled={!text.trim()} onClick={submit}>投稿</button>
+          <button
+            className={`dream-btn ${mode === 'dream' ? 'on' : ''}`}
+            disabled={!dreamOk}
+            onClick={() => setMode(mode === 'dream' ? 'post' : 'dream')}
+            aria-pressed={mode === 'dream'}
+            title={dreamOk ? '夢を記録する' : '今日の夢は記録済み'}
+          >
+            <PixelSprite name="icon_moon" scale={2} />
+            <span>{dreamOk ? '夢' : '記録済'}</span>
+          </button>
+          <span className="muted small grow">
+            {remaining > 0 ? `+${(expForChars(chars) || expForChars(1)) + (mode === 'dream' ? DREAM.expBonus : 0)} EXP${isFinite(remaining) ? ` ・ 残り${remaining}回` : ''}` : '今日の報酬は上限（投稿は保存されます）'}
+          </span>
+          <button className="post-btn" disabled={!text.trim()} onClick={submit}>{mode === 'dream' ? '夢を記録' : '投稿'}</button>
         </div>
       </section>
 
@@ -92,12 +112,22 @@ export function Home({ state, onPost, goto }: Props) {
         </div>
         <div className="status-grid">
           <div><small>最高到達</small><b>{ch.bestFloor}階</b></div>
-          <div><small>戦闘力</small><b>{powerRating(build).toLocaleString()}</b></div>
+          <div><small>戦闘力</small><b>{fmtNum(powerRating(build))}</b></div>
           <div><small>装備</small><b>{Object.keys(state.items).length}</b></div>
         </div>
       </section>
 
-      <Scene expedition={state.expedition} log={lastLog} maxHp={build.hp} inspiredUntil={state.idle.inspirationUntil} animate={!!result} />
+      <Scene
+        expedition={state.expedition}
+        log={lastLog}
+        maxHp={build.hp}
+        inspiredUntil={state.idle.inspirationUntil}
+        animate={!!result}
+        equipped={equipped}
+        npc={npc}
+        pulse={combat.length ? combat[combat.length - 1].id : 0}
+      />
+      <CombatFeed lines={combat} />
 
       {liveEvents.length > 0 && (
         <section className="card">
@@ -132,8 +162,8 @@ export function Home({ state, onPost, goto }: Props) {
         {recentPosts.length === 0 && <p className="muted small">まだ投稿はありません。ひとことでOK。</p>}
         <ul className="timeline">
           {recentPosts.map((d) => (
-            <li key={d.id}>
-              <span className="muted small">{formatTime(d.createdAt)}</span>
+            <li key={d.id} className={d.color ? `c-${d.color}` : ''}>
+              <span className="muted small">{d.kind === 'dream' ? '夢 ・ ' : ''}{formatTime(d.createdAt)}</span>
               <p>{d.text}</p>
               {d.analysis && <ThemeChips themes={d.analysis.themes.slice(0, 3)} />}
             </li>

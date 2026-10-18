@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { IDLE } from './game/config';
-import { createInitialState, editDiary, settleIdle, submitPost } from './game/engine';
+import { createInitialState, editDiary, setPostColor, settleIdle, submitPost } from './game/engine';
+import { NPC_CHATTER_CHANCE, npcLine, type NpcTrigger } from './game/npc';
 import { createRng, randomSeed } from './game/rng';
-import type { GameState, IdleReport } from './game/types';
+import type { GameState, IdleReport, LogEvent } from './game/types';
 import { loadState, requestPersistence, saveState } from './storage/store';
 import { Equipment } from './ui/Equipment';
 import { History } from './ui/History';
@@ -23,38 +24,101 @@ type Tab = (typeof TABS)[number]['id'];
 const worthShowing = (r: IdleReport | null): r is IdleReport =>
   !!r && r.seconds >= IDLE.reportMinSeconds && (r.floorsCleared > 0 || r.itemIds.length > 0);
 
+const FEED_MAX = 7;
+const SAVE_INTERVAL_MS = 5000;
+const uiRng = createRng(randomSeed());
+
 export default function App() {
   const [state, setState] = useState<GameState>(loadState);
   const [tab, setTab] = useState<Tab>('home');
   const [saveError, setSaveError] = useState(false);
   const [report, setReport] = useState<IdleReport | null>(null);
+  const [feed, setFeed] = useState<{ id: number; text: string }[]>([]);
+  const [npc, setNpc] = useState<string | undefined>();
   const stateRef = useRef(state);
   stateRef.current = state;
+  const queue = useRef<string[]>([]);
+  const lineId = useRef(0);
+  const npcTimer = useRef<number>();
+  const slow = useRef(0);
 
-  // 経過時間ぶん探索を精算する（起動時・復帰時・定期）
-  const settle = useCallback((showReport: boolean) => {
-    const r = settleIdle(stateRef.current, new Date());
-    if (r.state === stateRef.current) return;
-    stateRef.current = r.state;
-    setState(r.state);
-    if (showReport && worthShowing(r.report)) setReport(r.report);
+  const say = useCallback((trigger: NpcTrigger, ctx: Parameters<typeof npcLine>[2] = {}) => {
+    setNpc(npcLine(trigger, uiRng, ctx));
+    window.clearTimeout(npcTimer.current);
+    npcTimer.current = window.setTimeout(() => setNpc(undefined), 6500);
   }, []);
 
-  useEffect(() => {
-    settle(true);
-    requestPersistence();
-    const onVisible = () => document.visibilityState === 'visible' && settle(true);
-    document.addEventListener('visibilitychange', onVisible);
-    const timer = setInterval(() => document.visibilityState === 'visible' && settle(false), IDLE.liveTickMs);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      clearInterval(timer);
-    };
-  }, [settle]);
+  /** 珍しい出来事にNPCが反応する */
+  const react = useCallback(
+    (events: LogEvent[]) => {
+      if (events.some((e) => e.kind === 'item' && e.level === 'epic')) say('legendary');
+      else if (events.some((e) => e.kind === 'record')) say('record');
+    },
+    [say],
+  );
+
+  // 経過時間ぶん探索を精算する（起動時・復帰時・定期）
+  const settle = useCallback(
+    (live: boolean) => {
+      const combat: string[] = [];
+      const r = settleIdle(stateRef.current, new Date(), undefined, { combat, eager: true });
+      if (r.state === stateRef.current) return false;
+      // 起動直後もログが流れるよう、放置分の最後の数行だけ見せる
+      if (!live) queue.current.push(...combat.slice(-12));
+      stateRef.current = r.state;
+      setState(r.state);
+      if (live) {
+        queue.current.push(...combat);
+        if (queue.current.length > 60) queue.current.splice(0, queue.current.length - 60);
+        if (r.report) react(r.report.highlights);
+        if (uiRng.next() < NPC_CHATTER_CHANCE) say('chatter');
+      } else if (worthShowing(r.report)) {
+        setReport(r.report);
+        say('report');
+        return true;
+      }
+      return false;
+    },
+    [react, say],
+  );
 
   useEffect(() => {
-    setSaveError(!saveState(state));
-  }, [state]);
+    const shown = settle(false);
+    requestPersistence();
+    if (!shown) say('welcome', { hour: new Date().getHours() });
+    const save = () => setSaveError(!saveState(stateRef.current));
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') settle(false);
+      else save();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('pagehide', save);
+    const tick = setInterval(() => document.visibilityState === 'visible' && settle(true), IDLE.liveTickMs);
+    // 戦闘ログを1行ずつ流す（たまったら少し速く）
+    const feedTimer = setInterval(() => {
+      const q = queue.current;
+      if (!q.length) return;
+      // 次の階層まで（約30秒）途切れにくいよう、たまっている量で流す速さを変える
+      if (q.length < 12 && ++slow.current % 2) return;
+      const n = q.length > 30 ? 3 : q.length > 18 ? 2 : 1;
+      const lines = q.splice(0, n).map((text) => ({ id: ++lineId.current, text }));
+      setFeed((f) => [...f, ...lines].slice(-FEED_MAX));
+    }, IDLE.combatLineMs);
+    const saver = setInterval(save, SAVE_INTERVAL_MS);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pagehide', save);
+      clearInterval(tick);
+      clearInterval(feedTimer);
+      clearInterval(saver);
+    };
+  }, [settle, say]);
+
+  const update = (s: GameState) => {
+    stateRef.current = s;
+    setState(s);
+    setSaveError(!saveState(s));
+  };
 
   const goto = (t: string) => {
     setTab(t as Tab);
@@ -72,27 +136,33 @@ export default function App() {
           <Home
             state={state}
             goto={goto}
-            onPost={(text) => {
+            npc={npc}
+            combat={feed}
+            onPost={(text, kind) => {
               const now = new Date();
               // 投稿前にそれまでの放置分を精算してから投稿を処理する
               const settled = settleIdle(stateRef.current, now).state;
-              const r = submitPost(settled, { text, date: todayStr(now), now }, createRng(randomSeed()));
-              stateRef.current = r.state;
-              setState(r.state);
+              const r = submitPost(settled, { text, date: todayStr(now), now, kind }, createRng(randomSeed()));
+              update(r.state);
+              if (r.events.some((e) => e.kind === 'item' && e.level === 'epic' && !e.text.includes('夢'))) say('legendary');
+              else say(r.entry.kind === 'dream' ? 'dream' : 'post', { theme: r.entry.analysis?.themes[0]?.type });
               return r;
             }}
           />
         )}
-        {tab === 'history' && <History state={state} onEdit={(id, text) => setState(editDiary(state, id, text))} />}
+        {tab === 'history' && (
+          <History
+            state={state}
+            onEdit={(id, text) => update(editDiary(state, id, text))}
+            onColor={(id, color) => update(setPostColor(stateRef.current, id, color))}
+          />
+        )}
         {tab === 'equip' && <Equipment state={state} />}
         {tab === 'logs' && (
           <Logs
             state={state}
-            onReplace={(s) => setState(s)}
-            onReset={() => {
-              const s = settleIdle(createInitialState(), new Date()).state;
-              setState(s);
-            }}
+            onReplace={(s) => update(s)}
+            onReset={() => update(settleIdle(createInitialState(), new Date()).state)}
           />
         )}
       </main>

@@ -75,8 +75,22 @@ export function startExpedition(id: string, build: Build, dungeonId: string, pre
 /**
  * 1階層分を進める（ex を直接更新する）。
  */
-export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng, log = true): FloorOutcome {
+/** 大きな数を短く表示（無限に潜ると桁が大きくなるため） */
+export function fmtNum(n: number): string {
+  if (!isFinite(n)) return '∞';
+  const a = Math.abs(n);
+  if (a < 10000) return String(Math.round(n));
+  if (a >= 1e24) return n.toExponential(2).replace('e+', 'e');
+  const units: [number, string][] = [[1e20, '垓'], [1e16, '京'], [1e12, '兆'], [1e8, '億'], [1e4, '万']];
+  for (const [v, u] of units) if (a >= v) return `${(n / v).toFixed(a / v >= 100 ? 0 : 1)}${u}`;
+  return String(Math.round(n));
+}
+
+export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng, log = true, combat?: string[]): FloorOutcome {
   const floor = ex.floor;
+  const say = (line: string) => {
+    if (combat) combat.push(line);
+  };
   const events: LogEvent[] = [];
   const push = (level: LogEvent['level'], kind: string, text: string) => {
     if (log) events.push({ level, kind, text, floor });
@@ -91,33 +105,47 @@ export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng,
 
   const event = rollFloorEvent(floor, d, rng);
   out.event = event;
-  ex.lastEvent = event;
+  if (event !== 'rest') ex.lastEvent = event;
+  const dropMul = 1 + build.dejavu;
 
   if (event === 'chest') {
-    out.drops.push('chest');
+    const [lo, hi] = FLOOR_EVENTS.chestItems;
+    const n = Math.max(1, Math.round(int(rng, lo, hi) * dropMul));
+    for (let i = 0; i < n; i++) out.drops.push('chest');
     push('detail', 'chest', `第${floor}階層：宝箱を見つけた`);
+    say(`第${floor}階層 宝箱を開けた！ 装備×${n}`);
   } else if (event === 'rest') {
+    // 休息ポイントでは立ち止まらず、回復だけして先へ進む
     const before = ex.hp;
     ex.hp = Math.min(build.hp, ex.hp + build.hp * FLOOR_EVENTS.restHeal);
-    push('detail', 'rest', `第${floor}階層：休息ポイントでひと休み（HP +${Math.round(ex.hp - before)}）`);
+    push('detail', 'rest', `第${floor}階層：休息ポイントで回復して先へ（HP +${fmtNum(ex.hp - before)}）`);
+    say(`第${floor}階層 たき火で回復 HP+${fmtNum(ex.hp - before)}、そのまま先へ`);
   } else {
     let enemies = spawnEnemies(floor, event, d, rng);
     const bossName = enemies[0].name;
     ex.lastEnemy = { name: enemies[0].name, sprite: enemies[0].sprite, boss: enemies[0].boss };
+    say(event === 'boss' ? `第${floor}階層 ボス ${bossName} が現れた！` : event === 'elite' ? `第${floor}階層 ${bossName} が立ちはだかる！` : `第${floor}階層 ${enemies[0].name}${enemies.length > 1 ? ` たち×${enemies.length}` : ''} が現れた`);
 
     const hit = (target: Enemy, kind: 'main' | 'extra' | 'chain', depth: number) => {
-      const atkMul = 1 + build.onKillAtk * Math.min(ex.killStacks, COMBAT.onKillCap) + build.momentum * Math.min(ex.streak, COMBAT.momentumCap);
+      const atkMul = 1 + build.onKillAtk * Math.min(ex.killStacks, COMBAT.onKillCap) + build.momentum * Math.min(ex.streak, COMBAT.momentumCap) + (ex.dreamAtk ?? 0);
       const atk = build.atk * atkMul;
       const isCrit = chance(rng, build.crit);
       let dmg = ((atk * atk) / (atk + target.def)) * range(rng, 0.9, 1.1) * (isCrit ? build.critMul : 1);
       if (target.boss) dmg *= 1 + build.bossDmg;
       target.hp -= dmg;
       if (build.lifesteal > 0) ex.hp = Math.min(build.hp, ex.hp + dmg * build.lifesteal);
-      if (target.hp > 0) return;
+      const label = kind === 'chain' ? '連鎖' : kind === 'extra' ? '追撃' : '攻撃';
+      say(`${isCrit ? '会心！ ' : ''}${label}→${target.name}に ${fmtNum(dmg)} ダメージ`);
+      if (target.hp > 0) {
+        // 明晰夢：会心のあとにもう一撃（通常攻撃からのみ）
+        if (isCrit && kind === 'main' && build.lucid > 0 && chance(rng, build.lucid)) hit(target, 'extra', depth);
+        return;
+      }
 
       enemies = enemies.filter((e) => e !== target);
       ex.kills++;
       out.kills++;
+      say(`${target.name}を倒した`);
       const triggers = kind === 'main' || build.echo;
       if (!triggers) return;
       ex.killStacks++;
@@ -143,9 +171,14 @@ export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng,
       hit(enemies[0], 'main', 0);
       if (enemies.length && chance(rng, build.extraAttack)) hit(enemies[0], 'extra', 0);
       for (const e of enemies) {
-        if (chance(rng, build.dodge)) continue;
-        ex.hp -= ((e.atk * e.atk) / (e.atk + build.def)) * range(rng, 0.9, 1.1);
+        if (chance(rng, build.dodge)) {
+          say(`${e.name}の攻撃をかわした`);
+          continue;
+        }
+        const taken = ((e.atk * e.atk) / (e.atk + build.def)) * range(rng, 0.9, 1.1);
+        ex.hp -= taken;
         ex.streak = 0;
+        say(`${e.name}の攻撃 ${fmtNum(taken)} ダメージを受けた`);
         if (ex.hp <= 0) {
           if (ex.phoenixReady) {
             ex.phoenixReady = false;
@@ -155,6 +188,7 @@ export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng,
             ex.ended = 'defeat';
             ex.lastEnemy = { name: e.name, sprite: e.sprite, boss: e.boss };
             push('normal', 'end', `第${floor}階層：${e.name}に敗れ、帰還した`);
+            say(`力尽きた… 第${floor}階層から帰還する`);
             return out;
           }
         }
@@ -164,12 +198,18 @@ export function playFloor(ex: Expedition, build: Build, d: DungeonDef, rng: Rng,
     if (event === 'boss') {
       ex.bossFloors.push(floor);
       if (chance(rng, FLOOR_EVENTS.drop.boss)) out.drops.push('boss');
+      if (chance(rng, FLOOR_EVENTS.bossBonusChance * dropMul)) out.drops.push('boss');
+      if (build.dreamEater > 0) {
+        ex.hp = build.hp;
+        ex.dreamAtk = (ex.dreamAtk ?? 0) + build.dreamEater;
+        say('悪夢を喰らった！ HP全回復・攻撃力上昇');
+      }
       if (floor > ex.prevBest) push('epic', 'boss', `第${floor}階層：これまで越えられなかった${bossName}を撃破！`);
       else push('important', 'boss', `第${floor}階層：${bossName}を撃破`);
     } else if (event === 'elite') {
-      if (chance(rng, FLOOR_EVENTS.drop.elite)) out.drops.push('elite');
+      if (chance(rng, FLOOR_EVENTS.drop.elite * dropMul)) out.drops.push('elite');
       push('normal', 'elite', `第${floor}階層：${bossName}を倒した`);
-    } else if (chance(rng, FLOOR_EVENTS.drop.battle)) {
+    } else if (chance(rng, FLOOR_EVENTS.drop.battle * dropMul)) {
       out.drops.push('battle');
     }
   }

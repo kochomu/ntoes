@@ -3,14 +3,14 @@
 import { analyzeDiary } from './analyzer';
 import {
   COMBAT, DAILY_REWARD_LIMIT, DROPS, DUNGEONS, DUNGEON_BY_ID, DUNGEON_RANDOM_CHANCE, EXP_TABLE,
-  FLOOR_EVENTS, IDLE, POST, RARITY_INFO, TAG_INFO, THEME_PROFILES, expToNext, itemLevelFor,
+  DREAM, FLOOR_EVENTS, IDLE, POST, RARITY_INFO, TAG_INFO, THEME_PROFILES, expToNext, itemLevelFor, itemScaleFor,
 } from './config';
 import { playFloor, simulateDungeon, startExpedition, type DropSource } from './dungeon';
-import { generateItem } from './items';
+import { generateDreamItem, generateItem } from './items';
 import { chance, createRng, pick, randomSeed, weighted, type Rng } from './rng';
 import { computeBuild, powerRating, type Build } from './stats';
 import type {
-  AdventureLog, Analysis, DiaryEntry, GameState, IdleReport, Item, LogEvent, Slot, Theme,
+  AdventureLog, Analysis, DiaryEntry, GameState, IdleReport, Item, LogEvent, PostColor, Slot, Theme,
 } from './types';
 import { SLOTS, THEMES } from './types';
 
@@ -88,6 +88,10 @@ export function tryAutoEquip(state: GameState, item: Item): EquipDecision {
   const current = curId ? state.items[curId] : null;
   const beforeItems = equippedItems(state);
   const afterItems = equippedItems(state, { [item.slot]: item });
+  // 明らかに弱い装備はシミュレーションせずに見送る（端末の負荷対策）
+  if (current && !item.special && powerRating(computeBuild(ch.level, afterItems)) < powerRating(computeBuild(ch.level, beforeItems)) * 0.9) {
+    return { equipped: false, before: 0, after: 0, newSynergies: [] };
+  }
   const before = evaluateLoadout(ch.level, beforeItems);
   const after = evaluateLoadout(ch.level, afterItems);
   if (after <= before) return { equipped: false, before, after, newSynergies: [] };
@@ -117,7 +121,7 @@ function addExp(state: GameState, amount: number, events: LogEvent[]) {
 }
 
 const SOURCE_TEXT: Record<Item['source'], string> = {
-  diary: 'ひらめきから', boss: 'ボスが落とした', chest: '宝箱から', elite: '強敵が落とした', battle: '',
+  diary: 'ひらめきから', boss: 'ボスが落とした', chest: '宝箱から', elite: '強敵が落とした', battle: '', dream: '夢から',
 };
 
 function acquireItem(state: GameState, item: Item, events: LogEvent[], at: string) {
@@ -151,9 +155,10 @@ function pruneInventory(state: GameState) {
   const equippedIds = new Set(Object.values(state.character.equipped));
   const spare = Object.values(state.items).filter((i) => !equippedIds.has(i.id));
   if (spare.length <= DROPS.inventoryCap) return;
-  const rank: Record<Item['rarity'], number> = { normal: 0, magic: 1, rare: 2, legendary: 99 };
-  const value = (i: Item) => rank[i.rarity] * 10 + (i.special ? 5 : 0) + i.ilvl / 1000;
-  const removable = spare.filter((i) => i.rarity !== 'legendary').sort((a, b) => value(a) - value(b) || a.acquiredAt.localeCompare(b.acquiredAt));
+  // 価値 = レアリティ＋特殊効果＋アイテムレベル。夢アイテムは残す
+  const rank: Record<Item['rarity'], number> = { normal: 0, magic: 4, rare: 8, legendary: 16 };
+  const value = (i: Item) => rank[i.rarity] + (i.special ? 4 : 0) + i.ilvl * 0.5;
+  const removable = spare.filter((i) => !i.dream).sort((a, b) => value(a) - value(b) || a.acquiredAt.localeCompare(b.acquiredAt));
   for (const it of removable.slice(0, spare.length - DROPS.inventoryCap)) delete state.items[it.id];
 }
 
@@ -221,8 +226,9 @@ function finishExpedition(state: GameState, at: string, st: AdvanceStats) {
  * 指定秒数ぶん探索を進める。startMs は探索開始時刻（ひらめき判定とタイムスタンプに使う）。
  * 戻り値の carry は次回へ繰り越す秒数。
  */
-function advanceExploration(state: GameState, seconds: number, startMs: number, rng: Rng, now: Date, st: AdvanceStats, itemCap: { left: number }): number {
+function advanceExploration(state: GameState, seconds: number, startMs: number, rng: Rng, now: Date, st: AdvanceStats, itemCap: { left: number }, combat?: string[], eager = false): number {
   let budget = seconds;
+  let processed = 0;
   let t = startMs;
   const themes = recentThemeWeights(state, now);
   while (budget > 0) {
@@ -230,7 +236,7 @@ function advanceExploration(state: GameState, seconds: number, startMs: number, 
       const d = chooseDungeon(rng, themes);
       const best = state.character.bestFloor;
       state.expedition = startExpedition(nextId(state, 'l'), currentBuild(state), d.id, best, new Date(t).toISOString());
-      const startFloor = checkpointFloor(best);
+      const startFloor = checkpointFloor(best, currentBuild(state).dreamWalk);
       state.expedition.floor = startFloor;
       state.expedition.events.push({ level: 'normal', kind: 'start', text: `${d.name}へ出発${startFloor > 1 ? `（第${startFloor}階層から）` : ''}` });
       st.expeditions++;
@@ -238,10 +244,13 @@ function advanceExploration(state: GameState, seconds: number, startMs: number, 
     const ex = state.expedition;
     const d = DUNGEON_BY_ID[ex.dungeonId];
     // 次の階層のイベント種別で所要時間が変わるため、通常戦闘の時間を最低コストとして判定
-    if (budget < IDLE.floorSeconds.battle) break;
+    // eager（画面を開いている間）は時間を前借りして次の階層を先に計算し、戦闘ログを流しながら待つ
+    if (budget < IDLE.floorSeconds.battle && !(eager && processed === 0 && budget >= 0)) break;
+    processed++;
     const build = currentBuild(state);
     const isInspired = inspired(state, t);
-    const o = playFloor(ex, build, isInspired ? { ...d, eventBias: { ...d.eventBias, chest: (d.eventBias?.chest ?? 1) * POST.inspirationChestMul } } : d, rng);
+    const o = playFloor(ex, build, isInspired ? { ...d, eventBias: { ...d.eventBias, chest: (d.eventBias?.chest ?? 1) * POST.inspirationChestMul } } : d, rng, true, combat);
+    if (combat && combat.length > 120) combat.splice(0, combat.length - 60);
     const cost = IDLE.floorSeconds[o.event] ?? IDLE.floorSeconds.battle;
     budget -= cost;
     t += cost * 1000;
@@ -284,12 +293,13 @@ function advanceExploration(state: GameState, seconds: number, startMs: number, 
     const evs = state.expedition.events;
     state.expedition.events = [...evs.filter((e) => e.level === 'epic' || e.level === 'important').slice(-50), ...evs.slice(-20)].slice(-80);
   }
-  return Math.max(0, budget);
+  return eager ? Math.max(-IDLE.floorSeconds.boss, budget) : Math.max(0, budget);
 }
 
 /** 探索の開始階層：最高到達階層の一定割合までのボス階層を突破済みとして、その次から始める */
-export function checkpointFloor(best: number): number {
-  return Math.floor((best * IDLE.checkpointRatio) / COMBAT.bossEvery) * COMBAT.bossEvery + 1;
+export function checkpointFloor(best: number, bonus = 0): number {
+  const ratio = Math.min(0.95, IDLE.checkpointRatio + bonus);
+  return Math.floor((best * ratio) / COMBAT.bossEvery) * COMBAT.bossEvery + 1;
 }
 
 function rollDungeonItem(state: GameState, rng: Rng, src: DropSource, floor: number, dropThemes: Theme[], postThemes: { type: Theme; weight: number }[], at: string): Item {
@@ -297,13 +307,45 @@ function rollDungeonItem(state: GameState, rng: Rng, src: DropSource, floor: num
   const themes = [...dropThemes.map((t) => ({ type: t, weight: 0.6 })), ...postThemes];
   const item = generateItem(
     rng,
-    { ilvl: itemLevelFor(state.character.level, floor), themes, rarityBoost: FLOOR_EVENTS.rarityBoost[src], themeLuck: currentBuild(state).themeLuck },
+    { ilvl: itemLevelFor(state.character.level, floor), scale: itemScaleFor(floor), themes, rarityBoost: FLOOR_EVENTS.rarityBoost[src], themeLuck: currentBuild(state).themeLuck },
     nextId(state, 'i'),
     at,
     src,
   );
   item.floor = floor;
   return item;
+}
+
+/**
+ * 長時間の放置：細かく計算した分（detailSeconds）のペースで残りの時間の成果を算出する。
+ * 経験値・撃破数・突破階層は比例、装備は上限つきで実際に生成して自動装備にかける。
+ */
+function extrapolate(state: GameState, st: AdvanceStats, ratio: number, rng: Rng, at: string) {
+  if (ratio <= 0) return;
+  st.expFloat += st.expFloat * ratio;
+  st.kills += Math.round(st.kills * ratio);
+  st.floors += Math.round(st.floors * ratio);
+  st.bosses += Math.round(st.bosses * ratio);
+  st.chests += Math.round(st.chests * ratio);
+  st.elites += Math.round(st.elites * ratio);
+  st.rests += Math.round(st.rests * ratio);
+  st.expeditions += Math.round(st.expeditions * ratio);
+  const n = Math.min(IDLE.extrapolatedItemCap, Math.round(st.itemIds.length * ratio));
+  const best = state.character.bestFloor;
+  const lo = checkpointFloor(best);
+  const themes = recentThemeWeights(state, new Date(at));
+  for (let i = 0; i < n; i++) {
+    const floor = lo + Math.floor(rng.next() * Math.max(1, best - lo + 1));
+    const d = pick(rng, DUNGEONS);
+    const item = rollDungeonItem(state, rng, 'chest', floor, d.dropThemes, themes, at);
+    acquireItem(state, item, st.events, at);
+    st.itemIds.push(item.id);
+  }
+  st.events.push({ level: 'normal', kind: 'extrapolate', text: `長い放置のため、${formatHours(IDLE.detailSeconds)}を超えた分は探索ペースから成果を算出しました` });
+}
+
+function formatHours(sec: number) {
+  return `${Math.round(sec / 3600)}時間`;
 }
 
 function emptyStats(bestStart: number): AdvanceStats {
@@ -350,7 +392,7 @@ function applyExp(state: GameState, st: AdvanceStats): number {
  * 前回の精算から現在までの経過時間ぶん探索をシミュレートする（最大 IDLE.maxSeconds）。
  * アプリ起動時・復帰時・定期的に呼ぶ。
  */
-export function settleIdle(prev: GameState, now: Date = new Date(), rng?: Rng): { state: GameState; report: IdleReport | null } {
+export function settleIdle(prev: GameState, now: Date = new Date(), rng?: Rng, opts: { combat?: string[]; eager?: boolean } = {}): { state: GameState; report: IdleReport | null } {
   const state: GameState = structuredClone(prev);
   const nowIso = now.toISOString();
   if (!state.idle.lastTick) {
@@ -367,8 +409,10 @@ export function settleIdle(prev: GameState, now: Date = new Date(), rng?: Rng): 
   const levelFrom = state.character.level;
   const bestFrom = state.character.bestFloor;
   const startMs = capped ? now.getTime() - counted * 1000 : last;
-  const carry = advanceExploration(state, counted + (capped ? 0 : state.idle.carrySeconds), startMs, r, now, st, { left: IDLE.itemCapPerSettle });
-  state.idle.carrySeconds = carry;
+  const detail = Math.min(counted, IDLE.detailSeconds);
+  const carry = advanceExploration(state, detail + (capped ? 0 : state.idle.carrySeconds), startMs, r, now, st, { left: IDLE.itemCapPerSettle }, opts.combat, opts.eager);
+  state.idle.carrySeconds = counted > detail ? 0 : carry;
+  if (counted > detail) extrapolate(state, st, (counted - detail) / detail, r, nowIso);
   state.idle.lastTick = nowIso;
   if (!rng && 'state' in r) state.idle.rngState = (r as ReturnType<typeof createRng>).state();
   const exp = applyExp(state, st);
@@ -401,13 +445,19 @@ function safeAnalyze(text: string): Analysis | null {
   }
 }
 
+/** その日にまだ夢を記録できるか */
+export function canRecordDream(state: GameState, date: string): boolean {
+  return state.diaries.filter((d) => d.kind === 'dream' && d.date === date).length < DREAM.perDay;
+}
+
 /**
  * 短文投稿を保存し、経験値・装備ドロップ・ひらめき（探索ボーナス）・即時探索を処理する。
  * 報酬の強さは投稿内容に依存せず、分類結果は装備とダンジョンの「傾向」にだけ使う。
+ * kind = 'dream' のときは夢の記録（1日1回・夢限定アイテムを確定で獲得）。
  */
 export function submitPost(
   prev: GameState,
-  input: { text: string; date: string; now?: Date },
+  input: { text: string; date: string; now?: Date; kind?: 'post' | 'dream' },
   rng: Rng,
   analysis: Analysis | null = safeAnalyze(input.text),
 ): PostResult {
@@ -415,13 +465,14 @@ export function submitPost(
   const nowDate = input.now ?? new Date();
   const now = nowDate.toISOString();
   const chars = countChars(input.text);
+  const isDream = input.kind === 'dream' && canRecordDream(state, input.date);
   const events: LogEvent[] = [];
   const entry: DiaryEntry = {
     id: nextId(state, 'd'), date: input.date, createdAt: now, updatedAt: now, text: input.text, chars, analysis,
-    expGained: 0, rewarded: false, logIds: [],
+    expGained: 0, rewarded: false, logIds: [], ...(isDream ? { kind: 'dream' as const } : {}),
   };
 
-  if (rewardedCountOn(state, input.date) >= DAILY_REWARD_LIMIT) {
+  if (!isDream && rewardedCountOn(state, input.date) >= DAILY_REWARD_LIMIT) {
     events.push({ level: 'normal', kind: 'post', text: `投稿を保存しました（今日の報酬は上限${DAILY_REWARD_LIMIT}回に達しています）` });
     entry.events = events;
     state.diaries.push(entry);
@@ -430,51 +481,66 @@ export function submitPost(
   entry.rewarded = true;
 
   // 1. 経験値
-  const exp = Math.round(expForChars(chars) * (1 + currentBuild(state).expPct));
+  const exp = Math.round((expForChars(chars) + (isDream ? DREAM.expBonus : 0)) * (1 + currentBuild(state).expPct));
   entry.expGained = exp;
-  events.push({ level: 'normal', kind: 'exp', text: `投稿を保存 ・ 経験値 +${exp}` });
+  events.push({ level: 'normal', kind: 'exp', text: `${isDream ? '夢を記録' : '投稿を保存'} ・ 経験値 +${exp}` });
   addExp(state, exp, events);
 
-  // 2. 装備ドロップ（短文でも同じ確率・同じレアリティ抽選）
-  if (chance(rng, POST.dropChance)) {
-    const item = generateItem(
-      rng,
-      { ilvl: itemLevelFor(state.character.level, state.character.bestFloor), themes: analysis?.themes ?? [], themeLuck: currentBuild(state).themeLuck },
-      nextId(state, 'i'),
-      now,
-      'diary',
-    );
+  const ctx = () => ({ ilvl: itemLevelFor(state.character.level, state.character.bestFloor), scale: itemScaleFor(state.character.bestFloor), themes: analysis?.themes ?? [], themeLuck: currentBuild(state).themeLuck });
+  const showAll = (evs: LogEvent[]) => evs.map((e) => (e.kind === 'item' && e.level === 'detail' ? { ...e, level: 'normal' as const } : e));
+
+  // 2. 夢限定アイテム
+  if (isDream) {
+    const item = generateDreamItem(rng, ctx(), nextId(state, 'i'), now);
     item.diaryId = entry.id;
-    const itemEvents: LogEvent[] = [];
-    acquireItem(state, item, itemEvents, now);
-    // 投稿時はノーマル装備の入手も表示する
-    events.push(...itemEvents.map((e) => (e.kind === 'item' && e.level === 'detail' ? { ...e, level: 'normal' as const } : e)));
+    const evs: LogEvent[] = [{ level: 'epic', kind: 'dream', text: `夢の中から《${item.name}》を持ち帰った！` }];
+    acquireItem(state, item, evs, now);
+    events.push(...evs.filter((e) => e.kind !== 'item'));
   }
 
-  // 3. ひらめき：一定時間、探索の経験値と宝箱が増える
+  // 3. 装備ドロップ（短文でも同じ確率・同じレアリティ抽選）
+  let drops = POST.dropBase;
+  for (let k = 0; k < POST.dropBonusMax && chance(rng, POST.dropBonusChance); k++) drops++;
+  for (let k = 0; k < drops; k++) {
+    const item = generateItem(rng, ctx(), nextId(state, 'i'), now, 'diary');
+    item.diaryId = entry.id;
+    const evs: LogEvent[] = [];
+    acquireItem(state, item, evs, now);
+    events.push(...showAll(evs));
+  }
+
+  // 4. ひらめき：一定時間、探索の経験値と宝箱が増える
   const nowMs = nowDate.getTime();
   const curUntil = state.idle.inspirationUntil ? new Date(state.idle.inspirationUntil).getTime() : 0;
   const until = Math.min(Math.max(curUntil, nowMs) + POST.inspirationSeconds * 1000, nowMs + POST.inspirationMaxSeconds * 1000);
   state.idle.inspirationUntil = new Date(until).toISOString();
-  events.push({ level: 'normal', kind: 'inspiration', text: `ひらめき！ 探索ボーナス 残り${Math.round((until - nowMs) / 60000)}分` });
+  const left = Math.round((until - nowMs) / 60000);
+  events.push({ level: 'normal', kind: 'inspiration', text: `ひらめき！ 探索ボーナス 残り${left >= 60 ? `${Math.floor(left / 60)}時間${left % 60}分` : `${left}分`}` });
 
-  // 4. 即時探索（投稿した内容の傾向が反映される）
+  // 5. 即時探索（投稿した内容の傾向が反映される）
   state.diaries.push(entry);
+  const seconds = isDream ? DREAM.instantExploreSeconds : POST.instantExploreSeconds;
   const st = emptyStats(state.character.bestFloor);
   const levelFrom = state.character.level;
   const bestFrom = state.character.bestFloor;
-  advanceExploration(state, POST.instantExploreSeconds, nowMs, rng, nowDate, st, { left: 5 });
+  advanceExploration(state, seconds, nowMs, rng, nowDate, st, { left: Infinity });
   const exploreExp = applyExp(state, st);
-  const report = makeReport(state, st, now, now, POST.instantExploreSeconds, POST.instantExploreSeconds, levelFrom, bestFrom, exploreExp, 'post');
+  const report = makeReport(state, st, now, now, seconds, seconds, levelFrom, bestFrom, exploreExp, 'post');
   const summary = `探索が進んだ：${st.floors}階層突破・${st.kills}体撃破${st.itemIds.length ? `・装備${st.itemIds.length}個` : ''}`;
   events.push({ level: 'normal', kind: 'explore', text: summary });
-  events.push(...st.events.filter((e) => e.level !== 'detail' && e.kind !== 'start'));
+  events.push(...pickHighlights(st.events.filter((e) => e.kind !== 'start'), 12));
   if (state.character.bestFloor > bestFrom && !st.events.some((e) => e.kind === 'record')) {
     events.push({ level: 'important', kind: 'record', text: `到達階層を更新中！ ${bestFrom}階 → ${state.character.bestFloor}階` });
   }
   entry.expGained += exploreExp;
   entry.events = events.slice(0, 40);
   return { state, entry, events, report };
+}
+
+/** 投稿の色ラベルを設定（undefined で解除） */
+export function setPostColor(prev: GameState, id: string, color: PostColor | undefined): GameState {
+  const state: GameState = { ...prev, diaries: prev.diaries.map((d) => (d.id === id ? { ...d, color } : d)) };
+  return state;
 }
 
 /** 投稿本文の編集（報酬は再付与しない。分類のみ更新） */

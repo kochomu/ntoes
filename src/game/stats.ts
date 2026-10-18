@@ -19,6 +19,10 @@ export interface Build {
   dodge: number;
   bossDmg: number;
   phoenix: number; // 復活時HP割合。0なら無し
+  lucid: number; // 会心後の追撃率（夢）
+  dejavu: number; // 探索ドロップ率ボーナス（夢）
+  dreamWalk: number; // 探索開始地点の深さボーナス（夢）
+  dreamEater: number; // ボス撃破時の攻撃力上昇（夢）
   themeLuck: Partial<Record<Theme, number>>;
   synergies: { tag: SynergyTag; count: number; desc: string[] }[];
 }
@@ -33,6 +37,7 @@ export function computeBuild(level: number, items: Item[], retryStacks = 0): Bui
   let atkPct = 0, hpPct = 0, extraAttack = 0, chainChance = 0, chainLimit = COMBAT.chainLimit;
   let onKillAtk = 0, momentum = 0, floorHeal = COMBAT.floorHealBase, lifesteal = 0, expPct = 0;
   let dodge = 0, bossDmg = 0, phoenix = 0, retryBoost = 0, echo = false;
+  let lucid = 0, dejavu = 0, dreamWalk = 0, dreamEater = 0;
   const themeLuck: Partial<Record<Theme, number>> = {};
   const tagCount: Partial<Record<SynergyTag, number>> = {};
   const resonances: { tag: SynergyTag; value: number }[] = [];
@@ -73,6 +78,10 @@ export function computeBuild(level: number, items: Item[], retryStacks = 0): Bui
         case 'phoenix': phoenix = Math.max(phoenix, s.value); break;
         case 'doubleStrike': extraAttack += s.value; break;
         case 'giantSlayer': bossDmg += s.value; break;
+        case 'lucid': lucid += s.value; break;
+        case 'dejavu': dejavu += s.value; break;
+        case 'dreamWalk': dreamWalk += s.value; break;
+        case 'dreamEater': dreamEater += s.value; break;
         case 'resonance':
           if (s.tag) {
             tagCount[s.tag] = (tagCount[s.tag] ?? 0) + 1;
@@ -132,6 +141,10 @@ export function computeBuild(level: number, items: Item[], retryStacks = 0): Bui
     dodge: Math.min(dodge, 0.5),
     bossDmg,
     phoenix,
+    lucid: Math.min(lucid, 1),
+    dejavu,
+    dreamWalk: Math.min(dreamWalk, 0.6),
+    dreamEater,
     themeLuck,
     synergies,
   };

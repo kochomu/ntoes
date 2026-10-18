@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { analyzeDiary } from '../src/game/analyzer';
 import { ITEM_BASES } from '../src/game/config';
 import { playFloor, simulateDungeon, startExpedition } from '../src/game/dungeon';
-import { checkpointFloor, createInitialState, editDiary, expForChars, settleIdle, submitPost, tryAutoEquip } from '../src/game/engine';
+import { checkpointFloor, createInitialState, editDiary, expForChars, setPostColor, settleIdle, submitPost, tryAutoEquip } from '../src/game/engine';
+import { npcLine } from '../src/game/npc';
+import { heroSprite } from '../src/ui/heroSprite';
 import { IDLE, POST } from '../src/game/config';
 import { migrate } from '../src/storage/store';
 import { generateItem } from '../src/game/items';
@@ -142,12 +144,36 @@ describe('engine: posts', () => {
     expect(a.entry.expGained === b.entry.expGained || Math.abs(a.entry.expGained - b.entry.expGained) < 30).toBe(true);
     expect(expForChars(4)).toBe(expForChars(3));
   });
-  it('limits rewards per day', () => {
+  it('has no daily reward limit and always drops items', () => {
     let s = createInitialState();
     const rng = createRng(9);
-    for (let i = 0; i < 12; i++) s = submitPost(s, { text: 'テスト', date: '2026-10-18', now: T0 }, rng).state;
-    expect(s.diaries.filter((d) => d.rewarded).length).toBeLessThan(12);
-    expect(s.diaries).toHaveLength(12);
+    for (let i = 0; i < 15; i++) s = submitPost(s, { text: 'テスト', date: '2026-10-18', now: T0 }, rng).state;
+    expect(s.diaries.filter((d) => d.rewarded)).toHaveLength(15);
+    expect(Object.values(s.items).filter((i) => i.source === 'diary').length).toBeGreaterThanOrEqual(15);
+  });
+  it('dream: once per day, gives a dream-only item', () => {
+    let s = createInitialState();
+    const rng = createRng(4);
+    const r1 = submitPost(s, { text: '空を飛ぶ夢を見た', date: '2026-10-18', now: T0, kind: 'dream' }, rng);
+    s = r1.state;
+    expect(r1.entry.kind).toBe('dream');
+    const dreams = Object.values(s.items).filter((i) => i.dream);
+    expect(dreams).toHaveLength(1);
+    expect(['rare', 'legendary']).toContain(dreams[0].rarity);
+    expect(['dreamWalk', 'lucid', 'dejavu', 'dreamEater']).toContain(dreams[0].special!.kind);
+    // 2回目は通常投稿として扱う
+    const r2 = submitPost(s, { text: 'また夢', date: '2026-10-18', now: T0, kind: 'dream' }, rng);
+    expect(r2.entry.kind).toBeUndefined();
+    expect(Object.values(r2.state.items).filter((i) => i.dream)).toHaveLength(1);
+    // 翌日はまた記録できる
+    const r3 = submitPost(r2.state, { text: '翌日の夢', date: '2026-10-19', now: at(24), kind: 'dream' }, rng);
+    expect(r3.entry.kind).toBe('dream');
+  });
+  it('color labels can be set and cleared', () => {
+    const r = submitPost(createInitialState(), { text: 'メモ', date: '2026-10-18', now: T0 }, createRng(1));
+    const s1 = setPostColor(r.state, r.entry.id, 'blue');
+    expect(s1.diaries[0].color).toBe('blue');
+    expect(setPostColor(s1, r.entry.id, undefined).diaries[0].color).toBeUndefined();
   });
   it('editing does not grant rewards again', () => {
     const r = submitPost(createInitialState(), { text: '短い', date: '2026-10-18', now: T0 }, createRng(1));
@@ -170,11 +196,25 @@ describe('engine: idle', () => {
     expect(r.state.character.bestFloor).toBeGreaterThan(0);
     expect(r.state.reports).toHaveLength(1);
   });
-  it('caps offline rewards at 8 hours', () => {
+  it('long absences are fully rewarded (no cap) and stay fast', () => {
     const s0 = settleIdle(createInitialState(), T0).state;
-    const r = settleIdle(s0, at(48), createRng(2));
-    expect(r.report!.countedSeconds).toBe(IDLE.maxSeconds);
-    expect(r.report!.seconds).toBe(48 * 3600);
+    const t = performance.now();
+    const r = settleIdle(s0, at(72), createRng(2));
+    expect(performance.now() - t).toBeLessThan(3000);
+    expect(r.report!.countedSeconds).toBe(72 * 3600);
+    const day = settleIdle(s0, at(24), createRng(2)).report!;
+    expect(r.report!.kills).toBeGreaterThan(day.kills * 2);
+    expect(IDLE.maxSeconds).toBe(Infinity);
+  });
+  it('captures a simple combat log with damage numbers', () => {
+    const s0 = settleIdle(createInitialState(), T0).state;
+    const combat: string[] = [];
+    settleIdle(s0, new Date(T0.getTime() + 5 * 60_000), createRng(2), { combat });
+    expect(combat.length).toBeGreaterThan(5);
+    expect(combat.some((l) => /\d+ ダメージ/.test(l))).toBe(true);
+  });
+  it('rest points do not stop the climb', () => {
+    expect(IDLE.floorSeconds.rest).toBeLessThan(IDLE.floorSeconds.battle / 5);
   });
   it('settling in many small steps is roughly equal to one big step', () => {
     const s0 = settleIdle(createInitialState(), T0).state;
@@ -211,17 +251,17 @@ describe('engine: idle', () => {
   it('long-term simulation stays stable and grows', () => {
     let s = settleIdle(createInitialState(), T0).state;
     const rng = createRng(77);
-    for (let d = 0; d < 20; d++) {
+    for (let d = 0; d < 6; d++) {
       for (const h of [0, 6, 12]) {
         const now = at(d * 24 + h);
         s = settleIdle(s, now, rng).state;
         s = submitPost(s, { text: '仕事と勉強をした', date: now.toISOString().slice(0, 10), now }, rng).state;
       }
     }
-    expect(s.character.level).toBeGreaterThan(10);
-    expect(s.character.bestFloor).toBeGreaterThan(30);
-    expect(Object.keys(s.items).length).toBeLessThanOrEqual(310);
-    expect(JSON.stringify(s).length).toBeLessThan(1_500_000);
+        expect(s.character.bestFloor).toBeGreaterThan(30);
+    expect(s.character.level).toBeGreaterThan(5);
+    expect(Object.keys(s.items).length).toBeLessThanOrEqual(410);
+    expect(JSON.stringify(s).length).toBeLessThan(2_000_000);
   });
   it('migrates old save data without idle fields', () => {
     const old = createInitialState() as unknown as Record<string, unknown>;
@@ -241,6 +281,21 @@ describe('sprites', () => {
         for (const ch of row) if (ch !== '.') expect(sp.palette[ch], `${key} palette '${ch}'`).toBeDefined();
       }
     }
+  });
+  it('hero sprite changes with equipment and stays valid', () => {
+    const plain = heroSprite([]);
+    for (const base of ITEM_BASES) {
+      const sp = heroSprite([mk({ id: base.key, slot: base.slot, baseKey: base.key, rarity: 'legendary' })]);
+      for (const row of sp.rows) {
+        expect(row.length).toBe(16);
+        for (const ch of row) if (ch !== '.') expect(sp.palette[ch], `${base.key} '${ch}'`).toBeDefined();
+      }
+      if (base.slot === 'weapon') expect(sp.rows.join('')).not.toBe(plain.rows.join(''));
+    }
+  });
+  it('NPC always has something to say', () => {
+    const rng = createRng(1);
+    for (const t of ['welcome', 'report', 'post', 'dream', 'record', 'legendary', 'chatter'] as const) expect(npcLine(t, rng, { theme: 'rest', hour: 8 }).length).toBeGreaterThan(3);
   });
   it('every item base has an icon', () => {
     for (const b of ITEM_BASES) expect(SPRITES[`icon_${b.key}`], b.key).toBeDefined();

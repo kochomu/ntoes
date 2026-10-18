@@ -9,8 +9,8 @@ export const EXP_TABLE: [number, number][] = [
   [20, 22],
   [1, 18],
 ];
-/** 1日に報酬（EXP・ドロップ・ひらめき）を得られる投稿の数 */
-export const DAILY_REWARD_LIMIT = 10;
+/** 1日に報酬を得られる投稿の数（Infinity = 無制限。たくさん投稿するほど強くなる） */
+export const DAILY_REWARD_LIMIT = Infinity;
 
 export const expToNext = (level: number) => Math.round(40 * Math.pow(1.1, level - 1));
 
@@ -25,16 +25,24 @@ export const LEVEL_STATS = {
 
 /** アイテムレベル：深い階層ほど強い装備が出る */
 export const itemLevelFor = (level: number, floor: number) => 1 + Math.floor(floor / 3) + Math.floor(level / 4);
+/**
+ * 深層の装備倍率：敵は階層ごとに指数的に強くなるため、装備の数値も深さに応じて伸ばし「無限に潜れる」ようにする。
+ * 敵の成長率よりわずかに低くして、良い引き・シナジーがあるほど速く潜れるようにしている。
+ */
+export const ITEM_GROWTH = { from: 40, rate: 1.04 };
+export const itemScaleFor = (floor: number) => Math.pow(ITEM_GROWTH.rate, Math.max(0, floor - ITEM_GROWTH.from));
 
 // ---------- 投稿の報酬 ----------
 export const POST = {
-  /** 投稿で装備を拾う確率（レアリティ抽選は通常どおり。短文でもレジェンダリーの可能性あり） */
-  dropChance: 0.6,
+  /** 投稿で拾う装備：最低個数＋追加抽選（レアリティ抽選は通常どおり。短文でもレジェンダリーの可能性あり） */
+  dropBase: 1,
+  dropBonusChance: 0.5,
+  dropBonusMax: 2,
   /** 投稿するとその場で探索が進む秒数 */
   instantExploreSeconds: 10 * 60,
   /** 「ひらめき」効果：投稿ごとに延長する時間と上限 */
   inspirationSeconds: 2 * 3600,
-  inspirationMaxSeconds: 8 * 3600,
+  inspirationMaxSeconds: Infinity,
   /** ひらめき中の探索ボーナス */
   inspirationExpMul: 1.5,
   inspirationChestMul: 1.6,
@@ -45,24 +53,30 @@ export const POST = {
 
 // ---------- 放置・探索 ----------
 export const IDLE = {
-  /** 報酬計算の対象となる最大放置時間 */
-  maxSeconds: 8 * 3600,
-  /** 各イベントにかかる探索時間（秒） */
-  floorSeconds: { battle: 120, elite: 180, chest: 40, rest: 40, boss: 240 } as Record<string, number>,
+  /** 報酬計算の対象となる最大放置時間（Infinity = 無制限） */
+  maxSeconds: Infinity,
+  /** 1戦ずつ細かく計算する時間の上限。超えた分は直近のペースから成果を算出（端末の負荷対策） */
+  detailSeconds: 24 * 3600,
+  /** 算出分で生成する装備の上限 */
+  extrapolatedItemCap: 200,
+  /** 各イベントにかかる探索時間（秒）。休息ポイントは立ち止まらず回復だけして先へ進む */
+  floorSeconds: { battle: 30, elite: 45, chest: 10, rest: 3, boss: 60 } as Record<string, number>,
   /** 敗北後、次の探索に出るまでの時間 */
-  returnSeconds: 600,
+  returnSeconds: 60,
   /** 次の探索は「最高到達階層×この割合」付近のボス階層の次から始める（序盤の周回を省略） */
   checkpointRatio: 0.5,
   /** 階層突破ごとの経験値 */
-  expPerFloor: 0.15,
-  expPerBoss: 2,
-  /** 1回の精算で手に入る装備の上限（超えた宝箱は経験値に変換） */
-  itemCapPerSettle: 30,
+  expPerFloor: 0.05,
+  expPerBoss: 0.8,
+  /** 1回の精算で手に入る装備の上限（Infinity = 無制限） */
+  itemCapPerSettle: Infinity,
   chestOverflowExp: 3,
   /** 起動時に結果画面を出す最小放置時間（秒） */
   reportMinSeconds: 10 * 60,
   /** アプリを開いている間の自動精算間隔（ミリ秒） */
-  liveTickMs: 30 * 1000,
+  liveTickMs: 3 * 1000,
+  /** 画面に流す簡易戦闘ログの1行あたりの表示間隔（ミリ秒） */
+  combatLineMs: 900,
   /** 保存する探索記録・レポートの上限 */
   maxLogs: 300,
   maxReports: 60,
@@ -70,19 +84,22 @@ export const IDLE = {
 
 // ---------- 探索イベント ----------
 export const FLOOR_EVENTS = {
-  weights: { battle: 72, elite: 14, chest: 2, rest: 12 } as Record<'battle' | 'elite' | 'chest' | 'rest', number>,
+  weights: { battle: 72, elite: 14, chest: 4, rest: 10 } as Record<'battle' | 'elite' | 'chest' | 'rest', number>,
   elite: { hp: 2.4, atk: 1.25, def: 1.2 },
   restHeal: 0.35,
-  drop: { battle: 0.005, elite: 0.08, boss: 0.15 },
-  rarityBoost: { chest: 0.4, elite: 0.3, boss: 0.6, battle: 0 },
+  /** ドロップ率。宝箱は chestItems の範囲で複数個、ボスは必ず落とす */
+  drop: { battle: 0.01, elite: 0.2, boss: 0.3 },
+  chestItems: [1, 2] as [number, number],
+  bossBonusChance: 0.1,
+  rarityBoost: { chest: 0.2, elite: 0.2, boss: 0.4, battle: 0 },
 };
 
 // ---------- ドロップ ----------
 export const DROPS = {
   /** テーマに沿った装備になる確率（残りは完全ランダム） */
   themeInfluence: 0.65,
-  /** 未装備アイテムの保持上限（超えたら価値の低いものから削除。レジェンダリーは削除しない） */
-  inventoryCap: 300,
+  /** 未装備アイテムの保持上限（超えたら価値の低いものから削除。レジェンダリー・夢アイテムは削除しない） */
+  inventoryCap: 400,
 };
 
 export const RARITY_WEIGHTS: Record<Rarity, number> = {
@@ -141,10 +158,18 @@ export interface AffixDef {
   words: string[];
 }
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
+/** 大きな数を万・億などで短く */
+const short = (v: number) => {
+  const a = Math.abs(v);
+  if (a < 10000) return String(Math.round(v));
+  if (a >= 1e24) return v.toExponential(2).replace('e+', 'e');
+  for (const [d, u] of [[1e20, '垓'], [1e16, '京'], [1e12, '兆'], [1e8, '億'], [1e4, '万']] as [number, string][]) if (a >= d) return `${(v / d).toFixed(1)}${u}`;
+  return String(Math.round(v));
+};
 export const AFFIXES: AffixDef[] = [
-  { kind: 'atk', weight: 10, roll: (l) => [l * 0.6 + 1, l * 1.3 + 3], fmt: (v) => `攻撃力 +${Math.round(v)}`, words: ['鋭き', '猛き', '刃こぼれした'] },
-  { kind: 'def', weight: 9, roll: (l) => [l * 0.4 + 1, l * 0.9 + 2], fmt: (v) => `防御力 +${Math.round(v)}`, words: ['堅牢なる', '古びた', '重き'] },
-  { kind: 'hp', weight: 9, roll: (l) => [l * 3 + 5, l * 7 + 10], fmt: (v) => `最大HP +${Math.round(v)}`, words: ['逞しき', '温かな', '生命の'] },
+  { kind: 'atk', weight: 10, roll: (l) => [l * 0.6 + 1, l * 1.3 + 3], fmt: (v) => `攻撃力 +${short(v)}`, words: ['鋭き', '猛き', '刃こぼれした'] },
+  { kind: 'def', weight: 9, roll: (l) => [l * 0.4 + 1, l * 0.9 + 2], fmt: (v) => `防御力 +${short(v)}`, words: ['堅牢なる', '古びた', '重き'] },
+  { kind: 'hp', weight: 9, roll: (l) => [l * 3 + 5, l * 7 + 10], fmt: (v) => `最大HP +${short(v)}`, words: ['逞しき', '温かな', '生命の'] },
   { kind: 'atkPct', weight: 6, roll: () => [0.05, 0.15], fmt: (v) => `攻撃力 +${pct(v)}`, words: ['猛り狂う', '覇気纏う'] },
   { kind: 'hpPct', weight: 6, roll: () => [0.05, 0.15], fmt: (v) => `最大HP +${pct(v)}`, words: ['不屈の', '揺るがぬ'] },
   { kind: 'crit', weight: 6, roll: () => [0.03, 0.08], fmt: (v) => `会心率 +${pct(v)}`, words: ['研ぎ澄まされた', '狙い澄ます'] },
@@ -180,7 +205,24 @@ export const SPECIALS: SpecialDef[] = [
   { kind: 'doubleStrike', weight: 6, roll: () => [0.2, 0.3], desc: (v) => `追加攻撃 +${pct(v)}`, epithets: ['深淵を覗く', '双影の'] },
   { kind: 'giantSlayer', weight: 6, roll: () => [0.8, 1.2], desc: (v) => `ボスへのダメージ +${pct(v)}`, epithets: ['竜を屠った', '玉座を砕く'] },
 ];
-export const SPECIAL_BY_KIND = Object.fromEntries(SPECIALS.map((s) => [s.kind, s])) as Record<SpecialKind, SpecialDef>;
+/** 夢の記録でしか手に入らない特殊効果 */
+export const DREAM_SPECIALS: SpecialDef[] = [
+  { kind: 'dreamWalk', weight: 10, roll: () => [0.1, 0.25], desc: (v) => `探索開始地点が最高到達階層の +${pct(v)} 深くなる`, epithets: ['夢路を渡る', '眠りの底を歩く'] },
+  { kind: 'lucid', weight: 10, roll: () => [0.4, 0.7], desc: (v) => `会心の一撃のあと ${pct(v)} でもう一撃`, epithets: ['明晰夢の', '醒めながら見る'] },
+  { kind: 'dejavu', weight: 10, roll: () => [0.3, 0.6], desc: (v) => `探索中の装備ドロップ率 +${pct(v)}`, epithets: ['既視感の', 'いつか見た'] },
+  { kind: 'dreamEater', weight: 8, roll: () => [0.05, 0.1], desc: (v) => `ボス撃破でHP全回復・攻撃力 +${pct(v)}（探索中ずっと）`, epithets: ['悪夢を喰らう', '獏の'] },
+];
+export const DREAM = {
+  /** 夢を記録できる回数（1日あたり） */
+  perDay: 1,
+  /** 夢アイテムのレアリティ（Rare以上確定） */
+  rarityWeights: { rare: 70, legendary: 30 } as Record<'rare' | 'legendary', number>,
+  expBonus: 20,
+  /** 夢を記録すると即時探索する秒数 */
+  instantExploreSeconds: 20 * 60,
+};
+
+export const SPECIAL_BY_KIND = Object.fromEntries([...SPECIALS, ...DREAM_SPECIALS].map((s) => [s.kind, s])) as Record<SpecialKind, SpecialDef>;
 
 export const COMBAT = {
   chainLimit: 3,
@@ -189,13 +231,13 @@ export const COMBAT = {
   enemyGrowth: 1.06,
   enemyBase: { hp: 26, atk: 7, def: 2 },
   boss: { hp: 3.5, atk: 1.35, def: 1.2 },
-  maxFloor: 9999,
+  maxFloor: 1_000_000,
   turnLimitPerFloor: 300,
   momentumCap: 30,
   onKillCap: 400,
   retryStackMax: 5,
   /** 装備評価に使うシミュレーション回数 */
-  evalRuns: 5,
+  evalRuns: 3,
 };
 
 // ---------- シナジー ----------

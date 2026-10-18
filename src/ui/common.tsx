@@ -3,6 +3,9 @@ import { DUNGEON_BY_ID, RARITY_INFO, TAG_INFO, THEME_PROFILES } from '../game/co
 import { describeAffix, describeSpecial } from '../game/items';
 import type { AdventureLog, Expedition, IdleReport, Item, LogEvent, Slot, Theme } from '../game/types';
 import { PixelSprite } from './PixelSprite';
+import { heroAura, heroSprite } from './heroSprite';
+import { NPC_NAME } from '../game/npc';
+import { fmtNum } from '../game/dungeon';
 
 export const SLOT_LABEL: Record<Slot, string> = { weapon: '武器', armor: '防具', ring: '指輪', accessory: '装飾' };
 
@@ -39,7 +42,7 @@ export function ThemeChips({ themes }: { themes: { type: Theme; weight: number }
 
 export function ItemIcon({ item, scale = 3 }: { item: Item; scale?: number }) {
   return (
-    <span className={`item-icon r-${item.rarity}`}>
+    <span className={`item-icon r-${item.rarity} ${item.dream ? 'dream' : ''}`}>
       <PixelSprite name={`icon_${item.baseKey}`} scale={scale} />
     </span>
   );
@@ -48,12 +51,13 @@ export function ItemIcon({ item, scale = 3 }: { item: Item; scale?: number }) {
 export function ItemCard({ item, equipped, compact }: { item: Item; equipped?: boolean; compact?: boolean }) {
   const [open, setOpen] = useState(!compact);
   return (
-    <div className={`item-card r-${item.rarity}`} onClick={() => compact && setOpen(!open)}>
+    <div className={`item-card r-${item.rarity} ${item.dream ? 'dream' : ''}`} onClick={() => compact && setOpen(!open)}>
       <div className="item-head">
         <ItemIcon item={item} />
         <div className="item-title">
           <div className="item-name">《{item.name}》</div>
           <div className="item-meta">
+            {item.dream && <span className="dream-badge">夢</span>}
             <span className={`rar r-${item.rarity}`}>{RARITY_INFO[item.rarity].label}</span>
             <span>{SLOT_LABEL[item.slot]}</span>
             <span>iLv{item.ilvl}</span>
@@ -69,9 +73,9 @@ export function ItemCard({ item, equipped, compact }: { item: Item; equipped?: b
       </div>
       {open && (
         <ul className="item-stats">
-          {item.base.atk ? <li>攻撃力 {item.base.atk}</li> : null}
-          {item.base.def ? <li>防御力 {item.base.def}</li> : null}
-          {item.base.hp ? <li>最大HP {item.base.hp}</li> : null}
+          {item.base.atk ? <li>攻撃力 {fmtNum(item.base.atk)}</li> : null}
+          {item.base.def ? <li>防御力 {fmtNum(item.base.def)}</li> : null}
+          {item.base.hp ? <li>最大HP {fmtNum(item.base.hp)}</li> : null}
           {item.base.crit ? <li>会心率 +{Math.round(item.base.crit * 100)}%</li> : null}
           {item.affixes.map((a, i) => (
             <li key={i} className="affix">{describeAffix(a)}</li>
@@ -125,16 +129,24 @@ export function RunSummary({ log }: { log: AdventureLog }) {
 }
 
 /** ダンジョンの一場面（主人公と、いま探索中の階層のイベント） */
-export function Scene({ expedition, log, maxHp, inspiredUntil, animate }: {
+export function Scene({ expedition, log, maxHp, inspiredUntil, animate, equipped = [], npc, pulse }: {
   expedition?: Expedition;
   log?: AdventureLog;
   maxHp: number;
   inspiredUntil?: string;
   animate?: boolean;
+  /** 装備中のアイテム（主人公の見た目に反映） */
+  equipped?: Item[];
+  /** NPCのセリフ（あるときだけ吹き出しを出す） */
+  npc?: string;
+  /** 戦闘ログが流れるたびに変わる値（攻撃モーション用） */
+  pulse?: number;
 }) {
+  const aura = heroAura(equipped);
   const dungeonId = expedition?.dungeonId ?? log?.dungeonId;
   const d = dungeonId ? DUNGEON_BY_ID[dungeonId] : undefined;
-  const floor = expedition ? expedition.floor : log ? log.floorReached + 1 : 0;
+  // 画面に出ている敵・イベントは直前に計算した階層のもの
+  const floor = expedition ? Math.max(1, expedition.floor - (expedition.lastEvent ? 1 : 0)) : log ? log.floorReached + 1 : 0;
   const ev = expedition?.lastEvent;
   const enemy = expedition?.lastEnemy ?? log?.lastEnemy;
   const hpPct = expedition ? Math.max(0, Math.min(100, (expedition.hp / maxHp) * 100)) : 100;
@@ -146,9 +158,17 @@ export function Scene({ expedition, log, maxHp, inspiredUntil, animate }: {
     >
       <div className="scene-title">{d ? `${d.name}　第${floor}階層` : 'はじまりの村'}</div>
       {inspiredMin > 0 && <div className="scene-buff">ひらめき 残り{inspiredMin >= 60 ? `${Math.floor(inspiredMin / 60)}時間${inspiredMin % 60}分` : `${inspiredMin}分`}</div>}
+      {npc && (
+        <div className="npc" key={npc}>
+          <PixelSprite name="fairy" scale={3} title={NPC_NAME} />
+          <div className="npc-bubble"><b>{NPC_NAME}</b>{npc}</div>
+        </div>
+      )}
       <div className="scene-stage">
-        <div className="sprite-hero bob">
-          <PixelSprite name="hero" scale={5} title="主人公" />
+        <div className={`sprite-hero bob ${aura ? `aura-${aura}` : ''}`}>
+          <div key={pulse} className={pulse ? 'swing' : ''}>
+            <PixelSprite name="hero" sprite={heroSprite(equipped)} scale={5} title="主人公" />
+          </div>
           {expedition && (
             <div className="hp-bar" aria-label={`HP ${Math.round(hpPct)}%`}>
               <div style={{ width: `${hpPct}%` }} />
@@ -222,5 +242,19 @@ export function ReportView({ report, items, onClose }: { report: IdleReport; ite
       )}
       {onClose && <button className="primary-btn" onClick={onClose}>冒険を続ける</button>}
     </div>
+  );
+}
+
+/** 簡易戦闘ログ（数行だけ流れる） */
+export function CombatFeed({ lines }: { lines: { id: number; text: string }[] }) {
+  if (!lines.length) return null;
+  return (
+    <ul className="combat-feed" aria-live="off">
+      {lines.map((l) => (
+        <li key={l.id} className={l.text.includes('会心') ? 'crit' : l.text.includes('受けた') ? 'hurt' : l.text.includes('倒した') ? 'kill' : ''}>
+          {l.text.split(/(\d[\d.]*[万億兆京垓]?(?=\s*ダメージ))/).map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part))}
+        </li>
+      ))}
+    </ul>
   );
 }

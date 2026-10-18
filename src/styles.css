@@ -72,7 +72,7 @@ hr { border: none; border-top: 2px dashed var(--line); margin: 16px 0; }
 /* シーン */
 .scene {
   position: relative;
-  height: 190px;
+  height: 215px;
   border: 2px solid var(--line);
   border-radius: 4px;
   overflow: hidden;
@@ -323,3 +323,82 @@ hr { border: none; border-top: 2px dashed var(--line); margin: 16px 0; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .log-list.animate .log { opacity: 1; }
 }
+
+/* ---------- v0.3: 戦闘ログ・NPC・夢・色分け・装備で変わる主人公 ---------- */
+.combat-feed {
+  list-style: none; margin: -4px 0 0; padding: 8px 10px;
+  background: #0b0e16; border: 2px solid var(--line); border-top: none; border-radius: 0 0 4px 4px;
+  font-size: 12px; line-height: 1.5; min-height: calc(7 * 1.5em + 16px);
+  display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.combat-feed li { color: #b9c0d0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: feedIn 0.25s steps(2); }
+.combat-feed li:last-child { color: #fff; }
+.combat-feed li b { color: #ffd84a; font-weight: normal; }
+.combat-feed li.crit b { color: #ff7a2f; font-size: 13px; }
+.combat-feed li.hurt { color: #ff8f8f; }
+.combat-feed li.hurt b { color: #ff5d5d; }
+.combat-feed li.kill { color: #8fe3a0; }
+@keyframes feedIn { from { opacity: 0; transform: translateY(4px); } }
+
+.swing { animation: swing 0.35s steps(2); }
+@keyframes swing { 50% { transform: translateX(10px) rotate(4deg); } }
+.aura-legendary svg { filter: drop-shadow(0 0 4px #ffb347) drop-shadow(0 0 8px rgba(255, 140, 40, 0.6)); }
+.aura-dream svg { filter: drop-shadow(0 0 4px #b78cff) drop-shadow(0 0 9px rgba(140, 120, 255, 0.7)); }
+
+.npc {
+  position: absolute; left: 10px; top: 34px; z-index: 3;
+  display: flex; align-items: flex-start; gap: 6px; max-width: calc(100% - 20px);
+  animation: npcIn 0.3s steps(3);
+}
+.npc svg { animation: bob 0.8s steps(2) infinite; flex: none; }
+.npc-bubble {
+  background: #fdfbf4; color: #1d1a26; font-size: 12px; line-height: 1.45;
+  padding: 6px 9px; border: 2px solid #17151f; border-radius: 6px; position: relative;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4);
+}
+.npc-bubble b { display: block; font-size: 10px; font-weight: normal; color: #7a62c9; }
+.npc-bubble::before { content: ''; position: absolute; left: -7px; top: 10px; border: 5px solid transparent; border-right-color: #17151f; }
+@keyframes npcIn { from { opacity: 0; transform: translateY(-6px); } }
+
+.composer-foot .grow { flex: 1; min-width: 0; }
+.dream-btn {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  padding: 5px 10px; border-radius: 999px; font-size: 12px;
+  background: transparent; border: 2px solid #5b4b8a; color: #cbbcff;
+}
+.dream-btn.on { background: #3b2d6b; border-color: #b78cff; color: #fff; }
+.dream-btn:disabled { opacity: 0.4; }
+.composer.dream-mode { border-color: #8a6cff; background: linear-gradient(160deg, #241e3d, var(--panel)); }
+.composer.dream-mode .post-btn { background: linear-gradient(#c6a8ff, #8a6cff); color: #1a1033; }
+
+.dream-badge { font-size: 10px; padding: 0 6px; border-radius: 2px; background: #3b2d6b; border: 1px solid #b78cff; color: #e8ddff; }
+.item-card.dream { border-color: #8a6cff; background: linear-gradient(160deg, #262044, var(--panel)); }
+.item-card.dream .item-name { color: #d4c2ff; }
+.item-icon.dream { border-color: #b78cff; box-shadow: 0 0 8px rgba(183, 140, 255, 0.7); }
+
+/* 色分け */
+.c-red { --tag: #ff6b6b; }
+.c-yellow { --tag: #ffd84a; }
+.c-green { --tag: #5fd068; }
+.c-blue { --tag: #5aa9ff; }
+.c-purple { --tag: #b78cff; }
+.post-item { display: flex; gap: 10px; align-items: flex-start; }
+.post-body { flex: 1; min-width: 0; }
+.post-item[class*='c-'] { box-shadow: inset 3px 0 0 var(--tag); padding-left: 8px; margin-left: -8px; }
+.color-dot {
+  flex: none; width: 26px; height: 26px; margin-top: 2px; border-radius: 50%;
+  border: 2px dashed var(--line); background: transparent; padding: 0;
+}
+.color-dot[class*='c-'] { border: 2px solid #000; background: var(--tag); box-shadow: 0 0 0 2px var(--panel), 0 0 6px var(--tag); }
+.color-dot:active { transform: scale(0.88); }
+.timeline li[class*='c-'] { box-shadow: inset 3px 0 0 var(--tag); padding-left: 10px; }
+.color-filter { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.color-filter button {
+  min-width: 34px; height: 30px; padding: 0 10px; border-radius: 999px; font-size: 12px;
+  background: var(--panel); border: 2px solid var(--line); color: var(--muted);
+}
+.color-filter button.dot { background: var(--tag); color: #111; border-color: #000; padding: 0; width: 30px; min-width: 30px; opacity: 0.55; }
+.color-filter button.on { color: var(--accent); border-color: var(--accent); opacity: 1; }
+.color-filter button.dot.on { box-shadow: 0 0 0 2px var(--accent); }
+.hint { margin: -4px 4px 0; }
