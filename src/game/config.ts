@@ -111,10 +111,10 @@ export const RARITY_WEIGHTS: Record<Rarity, number> = {
 };
 export const RARITY_INFO: Record<Rarity, { label: string; affixes: number; mul: number; specialChance: number }> = {
   normal: { label: 'Normal', affixes: 1, mul: 1.0, specialChance: 0.02 },
-  magic: { label: 'Magic', affixes: 2, mul: 1.15, specialChance: 0.05 },
-  rare: { label: 'Rare', affixes: 3, mul: 1.3, specialChance: 0.15 },
-  legendary: { label: 'Legendary', affixes: 4, mul: 1.6, specialChance: 1 },
-  mythic: { label: 'Mythic', affixes: 5, mul: 1.9, specialChance: 1 },
+  magic: { label: 'Magic', affixes: 2, mul: 1.25, specialChance: 0.05 },
+  rare: { label: 'Rare', affixes: 3, mul: 1.6, specialChance: 0.15 },
+  legendary: { label: 'Legendary', affixes: 4, mul: 2.1, specialChance: 1 },
+  mythic: { label: 'Mythic', affixes: 5, mul: 2.8, specialChance: 1 },
 };
 
 // ---------- アイテムベース ----------

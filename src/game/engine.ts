@@ -12,7 +12,7 @@ import { computeBuild, powerRating, type Build } from './stats';
 import type {
   AdventureLog, Analysis, DiaryEntry, GameState, IdleReport, Item, LogEvent, PostColor, Slot, Theme,
 } from './types';
-import { SLOTS, THEMES } from './types';
+import { RARITIES, SLOTS, THEMES } from './types';
 
 export function createInitialState(): GameState {
   return {
@@ -88,13 +88,18 @@ export function tryAutoEquip(state: GameState, item: Item): EquipDecision {
   const current = curId ? state.items[curId] : null;
   const beforeItems = equippedItems(state);
   const afterItems = equippedItems(state, { [item.slot]: item });
+  // 同等以上のアイテムレベルなら、上位レアリティをシナジーより優先する。
+  // 同一レアリティや低IL品は従来どおり実戦シミュレーションで比較する。
+  const rarityUpgrade = !!current
+    && RARITIES.indexOf(item.rarity) > RARITIES.indexOf(current.rarity)
+    && item.ilvl >= current.ilvl;
   // 明らかに弱い装備はシミュレーションせずに見送る（端末の負荷対策）
-  if (current && !item.special && powerRating(computeBuild(ch.level, afterItems)) < powerRating(computeBuild(ch.level, beforeItems)) * 0.9) {
+  if (current && !rarityUpgrade && !item.special && powerRating(computeBuild(ch.level, afterItems)) < powerRating(computeBuild(ch.level, beforeItems)) * 0.9) {
     return { equipped: false, before: 0, after: 0, newSynergies: [] };
   }
   const before = evaluateLoadout(ch.level, beforeItems);
   const after = evaluateLoadout(ch.level, afterItems);
-  if (after <= before) return { equipped: false, before, after, newSynergies: [] };
+  if (after <= before && !rarityUpgrade) return { equipped: false, before, after, newSynergies: [] };
   const beforeSyn = new Set(computeBuild(ch.level, beforeItems).synergies.flatMap((s) => s.desc.map((d) => `${s.tag}:${d}`)));
   const newSynergies = computeBuild(ch.level, afterItems)
     .synergies.flatMap((s) => s.desc.map((d) => ({ key: `${s.tag}:${d}`, text: `【${TAG_INFO[s.tag].label}×${s.count}】${d}` })))
