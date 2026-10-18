@@ -14,6 +14,7 @@
   --r-magic: #5aa9ff;
   --r-rare: #ffd84a;
   --r-legendary: #ff7a2f;
+  --r-mythic: #d77bff;
   --pixel: 'DotGothic16', 'Hiragino Sans', system-ui, sans-serif;
   color-scheme: dark;
 }
@@ -178,18 +179,22 @@ hr { border: none; border-top: 2px dashed var(--line); margin: 16px 0; }
 .item-icon.r-magic { border-color: var(--r-magic); }
 .item-icon.r-rare { border-color: var(--r-rare); box-shadow: 0 0 6px rgba(255, 216, 74, 0.4); }
 .item-icon.r-legendary { border-color: var(--r-legendary); box-shadow: 0 0 10px rgba(255, 122, 47, 0.7); animation: glow 1.6s infinite; }
+.item-icon.r-mythic { border-color: var(--r-mythic); box-shadow: 0 0 14px rgba(215, 123, 255, 0.9); animation: glow 1.2s infinite; }
 .item-card { background: var(--panel); border: 2px solid var(--line); border-radius: 4px; padding: 10px; box-shadow: 0 3px 0 #0b0e16; }
 .item-card.r-legendary { border-color: var(--r-legendary); }
+.item-card.r-mythic { border-color: var(--r-mythic); box-shadow: 0 0 8px rgba(215, 123, 255, 0.35); }
 .item-card.r-rare { border-color: #7a6a2a; }
 .item-head { display: flex; gap: 10px; align-items: center; }
 .item-name { font-size: 14px; }
 .item-card.r-magic .item-name { color: var(--r-magic); }
 .item-card.r-rare .item-name { color: var(--r-rare); }
 .item-card.r-legendary .item-name { color: var(--r-legendary); }
+.item-card.r-mythic .item-name { color: var(--r-mythic); }
 .item-meta { display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px; color: var(--muted); margin-top: 2px; }
 .rar.r-magic { color: var(--r-magic); }
 .rar.r-rare { color: var(--r-rare); }
 .rar.r-legendary { color: var(--r-legendary); }
+.rar.r-mythic { color: var(--r-mythic); text-shadow: 0 0 6px rgba(215, 123, 255, 0.7); }
 .tag { border: 1px solid; padding: 0 5px; border-radius: 2px; font-size: 11px; }
 .item-stats { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
 .item-stats .affix { color: #9fd0ff; }
@@ -344,6 +349,7 @@ hr { border: none; border-top: 2px dashed var(--line); margin: 16px 0; }
 .swing { animation: swing 0.35s steps(2); }
 @keyframes swing { 50% { transform: translateX(10px) rotate(4deg); } }
 .aura-legendary svg { filter: drop-shadow(0 0 4px #ffb347) drop-shadow(0 0 8px rgba(255, 140, 40, 0.6)); }
+.aura-mythic svg { filter: drop-shadow(0 0 5px #e4a5ff) drop-shadow(0 0 12px rgba(215, 123, 255, 0.9)); }
 .aura-dream svg { filter: drop-shadow(0 0 4px #b78cff) drop-shadow(0 0 9px rgba(140, 120, 255, 0.7)); }
 
 .npc {

@@ -113,10 +113,10 @@ export function Equipment({ state }: { state: GameState }) {
           {Object.values(state.items)
             .filter((i) => i.dream)
             .map((it) => <ItemCard key={it.id} item={it} equipped={equippedIds.has(it.id)} compact />)}
-          <div className="card-title" style={{ marginTop: 16 }}>レジェンダリー</div>
-          {Object.values(state.items).filter((i) => i.rarity === 'legendary').length === 0 && <p className="muted small">まだ見ぬ伝説が眠っている…</p>}
+          <div className="card-title" style={{ marginTop: 16 }}>高レア装備</div>
+          {Object.values(state.items).filter((i) => i.rarity === 'legendary' || i.rarity === 'mythic').length === 0 && <p className="muted small">まだ見ぬ伝説が眠っている…</p>}
           {Object.values(state.items)
-            .filter((i) => i.rarity === 'legendary')
+            .filter((i) => i.rarity === 'legendary' || i.rarity === 'mythic')
             .map((it) => <ItemCard key={it.id} item={it} equipped={equippedIds.has(it.id)} compact />)}
         </section>
       )}

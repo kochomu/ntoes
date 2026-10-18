@@ -19,7 +19,7 @@ export interface Analysis {
 export const SLOTS = ['weapon', 'armor', 'ring', 'accessory'] as const;
 export type Slot = (typeof SLOTS)[number];
 
-export const RARITIES = ['normal', 'magic', 'rare', 'legendary'] as const;
+export const RARITIES = ['normal', 'magic', 'rare', 'legendary', 'mythic'] as const;
 export type Rarity = (typeof RARITIES)[number];
 
 export type SynergyTag = 'blade' | 'gear' | 'arcane' | 'shadow' | 'wind' | 'holy' | 'blood' | 'ember';

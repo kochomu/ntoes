@@ -104,7 +104,7 @@ export function LogList({ events, animate }: { events: LogEvent[]; animate?: boo
     <div>
       <ul className={`log-list ${animate ? 'animate' : ''}`}>
         {visible.map((e, i) => (
-          <LogLine key={i} e={e} delay={animate ? i * 260 : undefined} />
+          <LogLine key={i} e={e} delay={animate ? i * 100 : undefined} />
         ))}
       </ul>
       {hidden > 0 && (
@@ -205,7 +205,7 @@ export function formatDuration(sec: number): string {
 /** 放置中の戦果まとめ（起動時に表示） */
 export function ReportView({ report, items, onClose }: { report: IdleReport; items: Record<string, Item>; onClose?: () => void }) {
   const got = report.itemIds.map((id) => items[id]).filter((x): x is Item => !!x);
-  const rare = got.filter((i) => i.rarity === 'rare' || i.rarity === 'legendary' || i.special);
+  const rare = got.filter((i) => i.rarity === 'rare' || i.rarity === 'legendary' || i.rarity === 'mythic' || i.special);
   const capped = report.seconds > report.countedSeconds;
   return (
     <div className="report">

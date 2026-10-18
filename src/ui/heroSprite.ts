@@ -35,7 +35,7 @@ const WEAPONS: Record<string, Overlay> = {
 const SHIELD: Overlay = [[0, 8, 'k'], [1, 8, 'k'], [0, 9, 'd'], [1, 9, 'y'], [0, 10, 'd'], [1, 10, 'd'], [0, 11, 'd'], [1, 11, 'd'], [1, 12, 'k']];
 const AMULET: Overlay = [[6, 9, 'y']];
 
-const RARITY_METAL: Record<Rarity, string> = { normal: '#dfe6ee', magic: '#9fd0ff', rare: '#ffe27a', legendary: '#ffb347' };
+const RARITY_METAL: Record<Rarity, string> = { normal: '#dfe6ee', magic: '#9fd0ff', rare: '#ffe27a', legendary: '#ffb347', mythic: '#e4a5ff' };
 
 const cache = new Map<string, SpriteDef>();
 
@@ -71,7 +71,8 @@ export function heroSprite(equipped: Item[]): SpriteDef {
 }
 
 /** レジェンダリー・夢装備を持っているとオーラが出る */
-export function heroAura(equipped: Item[]): 'legendary' | 'dream' | undefined {
+export function heroAura(equipped: Item[]): 'mythic' | 'legendary' | 'dream' | undefined {
+  if (equipped.some((i) => i.rarity === 'mythic')) return 'mythic';
   if (equipped.some((i) => i.dream)) return 'dream';
   if (equipped.some((i) => i.rarity === 'legendary')) return 'legendary';
   return undefined;

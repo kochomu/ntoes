@@ -76,7 +76,7 @@ export const IDLE = {
   /** アプリを開いている間の自動精算間隔（ミリ秒） */
   liveTickMs: 3 * 1000,
   /** 画面に流す簡易戦闘ログの1行あたりの表示間隔（ミリ秒） */
-  combatLineMs: 900,
+  combatLineMs: 300,
   /** 保存する探索記録・レポートの上限 */
   maxLogs: 300,
   maxReports: 60,
@@ -107,12 +107,14 @@ export const RARITY_WEIGHTS: Record<Rarity, number> = {
   magic: 22,
   rare: 7,
   legendary: 1,
+  mythic: 0.1,
 };
 export const RARITY_INFO: Record<Rarity, { label: string; affixes: number; mul: number; specialChance: number }> = {
   normal: { label: 'Normal', affixes: 1, mul: 1.0, specialChance: 0.02 },
   magic: { label: 'Magic', affixes: 2, mul: 1.15, specialChance: 0.05 },
   rare: { label: 'Rare', affixes: 3, mul: 1.3, specialChance: 0.15 },
   legendary: { label: 'Legendary', affixes: 4, mul: 1.6, specialChance: 1 },
+  mythic: { label: 'Mythic', affixes: 5, mul: 1.9, specialChance: 1 },
 };
 
 // ---------- アイテムベース ----------

@@ -40,7 +40,6 @@ export default function App() {
   const queue = useRef<string[]>([]);
   const lineId = useRef(0);
   const npcTimer = useRef<number>();
-  const slow = useRef(0);
 
   const say = useCallback((trigger: NpcTrigger, ctx: Parameters<typeof npcLine>[2] = {}) => {
     setNpc(npcLine(trigger, uiRng, ctx));
@@ -94,12 +93,10 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('pagehide', save);
     const tick = setInterval(() => document.visibilityState === 'visible' && settle(true), IDLE.liveTickMs);
-    // 戦闘ログを1行ずつ流す（たまったら少し速く）
+    // 戦闘ログをテンポよく流す
     const feedTimer = setInterval(() => {
       const q = queue.current;
       if (!q.length) return;
-      // 次の階層まで（約30秒）途切れにくいよう、たまっている量で流す速さを変える
-      if (q.length < 12 && ++slow.current % 2) return;
       const n = q.length > 30 ? 3 : q.length > 18 ? 2 : 1;
       const lines = q.splice(0, n).map((text) => ({ id: ++lineId.current, text }));
       setFeed((f) => [...f, ...lines].slice(-FEED_MAX));

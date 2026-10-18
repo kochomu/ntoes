@@ -127,7 +127,7 @@ const SOURCE_TEXT: Record<Item['source'], string> = {
 function acquireItem(state: GameState, item: Item, events: LogEvent[], at: string) {
   state.items[item.id] = item;
   if (!state.codex[item.baseKey]) state.codex[item.baseKey] = at;
-  const level: LogEvent['level'] = item.rarity === 'legendary' ? 'epic' : item.rarity === 'rare' || item.special ? 'important' : 'detail';
+  const level: LogEvent['level'] = item.rarity === 'legendary' || item.rarity === 'mythic' ? 'epic' : item.rarity === 'rare' || item.special ? 'important' : 'detail';
   const tag = item.rarity === 'normal' ? '' : `[${RARITY_INFO[item.rarity].label}] `;
   const where = item.floor ? `第${item.floor}階層：` : '';
   events.push({
@@ -135,7 +135,7 @@ function acquireItem(state: GameState, item: Item, events: LogEvent[], at: strin
     kind: 'item',
     itemId: item.id,
     floor: item.floor,
-    text: `${where}${SOURCE_TEXT[item.source]}${tag}《${item.name}》を入手！${item.special && item.rarity !== 'legendary' ? '（特殊効果つき！）' : ''}`,
+    text: `${where}${SOURCE_TEXT[item.source]}${tag}《${item.name}》を入手！${item.special && item.rarity !== 'legendary' && item.rarity !== 'mythic' ? '（特殊効果つき！）' : ''}`,
   });
   const d = tryAutoEquip(state, item);
   if (d.equipped) {
@@ -156,7 +156,7 @@ function pruneInventory(state: GameState) {
   const spare = Object.values(state.items).filter((i) => !equippedIds.has(i.id));
   if (spare.length <= DROPS.inventoryCap) return;
   // 価値 = レアリティ＋特殊効果＋アイテムレベル。夢アイテムは残す
-  const rank: Record<Item['rarity'], number> = { normal: 0, magic: 4, rare: 8, legendary: 16 };
+  const rank: Record<Item['rarity'], number> = { normal: 0, magic: 4, rare: 8, legendary: 16, mythic: 32 };
   const value = (i: Item) => rank[i.rarity] + (i.special ? 4 : 0) + i.ilvl * 0.5;
   const removable = spare.filter((i) => !i.dream).sort((a, b) => value(a) - value(b) || a.acquiredAt.localeCompare(b.acquiredAt));
   for (const it of removable.slice(0, spare.length - DROPS.inventoryCap)) delete state.items[it.id];

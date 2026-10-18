@@ -14,7 +14,7 @@ export function Logs({ state, onReplace, onReset }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const rare = Object.values(state.items)
-    .filter((i) => i.rarity === 'rare' || i.rarity === 'legendary' || i.special)
+    .filter((i) => i.rarity === 'rare' || i.rarity === 'legendary' || i.rarity === 'mythic' || i.special)
     .sort((a, b) => b.acquiredAt.localeCompare(a.acquiredAt));
   const totalBosses = state.logs.reduce((s, l) => s + l.bossesDefeated, 0);
 
