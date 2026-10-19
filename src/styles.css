@@ -359,12 +359,12 @@ hr { border: none; border-top: 2px dashed var(--line); margin: 16px 0; }
 }
 .npc svg { animation: bob 0.8s steps(2) infinite; flex: none; }
 .npc-bubble {
-  background: #fdfbf4; color: #1d1a26; font-size: 12px; line-height: 1.45;
-  padding: 6px 9px; border: 2px solid #17151f; border-radius: 6px; position: relative;
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4);
+  background: linear-gradient(135deg, #fff0f8, #e9f6ff); color: #28233a; font-size: 12px; line-height: 1.45;
+  padding: 6px 9px; border: 2px solid #759fe3; border-radius: 6px; position: relative;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4), 0 0 8px rgba(255, 143, 200, 0.22);
 }
-.npc-bubble b { display: block; font-size: 10px; font-weight: normal; color: #7a62c9; }
-.npc-bubble::before { content: ''; position: absolute; left: -7px; top: 10px; border: 5px solid transparent; border-right-color: #17151f; }
+.npc-bubble b { display: block; font-size: 10px; font-weight: normal; color: #c3438b; }
+.npc-bubble::before { content: ''; position: absolute; left: -7px; top: 10px; border: 5px solid transparent; border-right-color: #759fe3; }
 @keyframes npcIn { from { opacity: 0; transform: translateY(-6px); } }
 
 .composer-foot .grow { flex: 1; min-width: 0; }

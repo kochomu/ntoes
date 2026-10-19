@@ -155,7 +155,7 @@ export default function App() {
             onColorLabel={(color, label) => update(setColorLabel(stateRef.current, color, label))}
           />
         )}
-        {tab === 'equip' && <Equipment state={state} onFuse={() => { const result = fuseInventory(stateRef.current); if (result.item) { update(result.state); window.alert(`10個を凝縮して《${result.item.name}》を再抽選したぞ！`); } }} />}
+        {tab === 'equip' && <Equipment state={state} onFuse={() => { const result = fuseInventory(stateRef.current); if (result.items.length) { update(result.state); window.alert(`${result.consumed}個を一括合成して、装備を${result.items.length}個再抽選したぞ！\n${result.items.map((item) => `・${item.name}`).join('\n')}`); } }} />}
         {tab === 'logs' && (
           <Logs
             state={state}

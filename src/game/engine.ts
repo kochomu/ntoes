@@ -555,27 +555,39 @@ export function setColorLabel(prev: GameState, color: PostColor, label: string):
   return { ...prev, colorLabels: { ...prev.colorLabels, [color]: clean } };
 }
 
-/** 所持品10個を消費して、再抽選した装備1個に凝縮する。装備中・夢・神話級は保護。 */
-export function fuseInventory(prev: GameState, now = new Date()): { state: GameState; item?: Item } {
+/** 合成対象数を返す。装備中・夢・神話級は素材から保護。 */
+export function fuseCandidateCount(state: GameState): number {
+  const equipped = new Set(Object.values(state.character.equipped).filter(Boolean));
+  return Object.values(state.items).filter((i) => !equipped.has(i.id) && !i.dream && i.rarity !== 'mythic').length;
+}
+
+/** 合成対象を10個ごとに一括で消費し、各グループから装備を再抽選する。 */
+export function fuseInventory(prev: GameState, now = new Date()): { state: GameState; items: Item[]; consumed: number } {
   const state: GameState = structuredClone(prev);
   const equipped = new Set(Object.values(state.character.equipped).filter(Boolean));
   const rank = { normal: 0, magic: 1, rare: 2, legendary: 3, mythic: 4 } as const;
   const candidates = Object.values(state.items).filter((i) => !equipped.has(i.id) && !i.dream && i.rarity !== 'mythic')
     .sort((a, b) => rank[a.rarity] - rank[b.rarity] || a.ilvl - b.ilvl || a.acquiredAt.localeCompare(b.acquiredAt));
-  if (candidates.length < 10) return { state: prev };
-  const consumed = candidates.slice(0, 10);
-  const minRarity = Math.min(2, Math.max(1, Math.floor(consumed.reduce((n, i) => n + rank[i.rarity], 0) / consumed.length)));
-  for (const item of consumed) delete state.items[item.id];
-  const r = createRng(randomSeed());
-  const rarity = RARITIES[minRarity];
-  const item = generateItem(r, {
-    ilvl: itemLevelFor(state.character.level, state.character.bestFloor),
-    scale: itemScaleFor(state.character.bestFloor), themes: recentThemeWeights(state, now),
-    themeLuck: currentBuild(state).themeLuck,
-  }, nextId(state, 'i'), now.toISOString(), 'chest', { rarity });
-  const events: LogEvent[] = [];
-  acquireItem(state, item, events, now.toISOString());
-  return { state, item };
+  const batchCount = Math.floor(candidates.length / 10);
+  if (!batchCount) return { state: prev, items: [], consumed: 0 };
+  const consumed = candidates.slice(0, batchCount * 10);
+  const outputs: Item[] = [];
+  for (let batch = 0; batch < batchCount; batch++) {
+    const group = consumed.slice(batch * 10, (batch + 1) * 10);
+    const minRarity = Math.min(2, Math.max(1, Math.floor(group.reduce((n, i) => n + rank[i.rarity], 0) / group.length)));
+    for (const item of group) delete state.items[item.id];
+    const r = createRng(randomSeed());
+    const rarity = RARITIES[minRarity];
+    const item = generateItem(r, {
+      ilvl: itemLevelFor(state.character.level, state.character.bestFloor),
+      scale: itemScaleFor(state.character.bestFloor), themes: recentThemeWeights(state, now),
+      themeLuck: currentBuild(state).themeLuck,
+    }, nextId(state, 'i'), now.toISOString(), 'chest', { rarity });
+    const events: LogEvent[] = [];
+    acquireItem(state, item, events, now.toISOString());
+    outputs.push(item);
+  }
+  return { state, items: outputs, consumed: consumed.length };
 }
 
 /** 投稿本文の編集（報酬は再付与しない。分類のみ更新） */

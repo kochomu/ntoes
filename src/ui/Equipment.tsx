@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ITEM_BASES, RARITY_INFO, TAG_INFO } from '../game/config';
-import { currentBuild, equippedItems } from '../game/engine';
+import { currentBuild, equippedItems, fuseCandidateCount } from '../game/engine';
 import { fmtNum } from '../game/dungeon';
 import { heroAura, heroSprite } from './heroSprite';
 import { powerRating } from '../game/stats';
@@ -18,6 +18,7 @@ export function Equipment({ state, onFuse }: { state: GameState; onFuse: () => v
   const ch = state.character;
   const b = currentBuild(state);
   const equippedIds = new Set(Object.values(ch.equipped));
+  const fuseCount = fuseCandidateCount(state);
   const equippedList = equippedItems(state);
   const aura = heroAura(equippedList);
   const items = Object.values(state.items)
@@ -79,8 +80,8 @@ export function Equipment({ state, onFuse }: { state: GameState; onFuse: () => v
         <>
           <section className="card">
             <div className="card-title">装備の凝縮</div>
-            <p className="muted small">未装備の装備10個を消費し、魔法級以上の装備1個に再抽選します。装備中・夢・神話級は素材から保護されます。</p>
-            <button className="ghost-btn" disabled={Object.values(state.items).filter((i) => !equippedIds.has(i.id) && !i.dream && i.rarity !== 'mythic').length < 10} onClick={onFuse}>10個を凝縮して再抽選</button>
+            <p className="muted small">未装備の通常装備を10個ずつまとめて合成します。装備中・夢・神話級は保護され、10個に満たない分は残ります。</p>
+            <button className="ghost-btn" disabled={fuseCount < 10} onClick={onFuse}>対象を一括合成（{Math.floor(fuseCount / 10)}回・{Math.floor(fuseCount / 10) * 10}個）</button>
           </section>
           <div className="filters">
             <select value={slot} onChange={(e) => setSlot(e.target.value as Slot | 'all')}>
