@@ -26,10 +26,10 @@ export const LEVEL_STATS = {
 /** アイテムレベル：深い階層ほど強い装備が出る */
 export const itemLevelFor = (level: number, floor: number) => 1 + Math.floor(floor / 3) + Math.floor(level / 4);
 /**
- * 深層の装備倍率：敵は階層ごとに指数的に強くなるため、装備の数値も深さに応じて伸ばし「無限に潜れる」ようにする。
- * 敵の成長率よりわずかに低くして、良い引き・シナジーがあるほど速く潜れるようにしている。
+ * 深層の装備倍率：敵と同じ階層成長率に加えて、アイテムレベルとレアリティ差で装備が優位になるようにする。
+ * 良い引きやシナジーでさらに踏破速度を伸ばせる設計。
  */
-export const ITEM_GROWTH = { from: 40, rate: 1.04 };
+export const ITEM_GROWTH = { from: 40, rate: 1.06 };
 export const itemScaleFor = (floor: number) => Math.pow(ITEM_GROWTH.rate, Math.max(0, floor - ITEM_GROWTH.from));
 
 // ---------- 投稿の報酬 ----------
@@ -60,7 +60,7 @@ export const IDLE = {
   /** 算出分で生成する装備の上限 */
   extrapolatedItemCap: 200,
   /** 各イベントにかかる探索時間（秒）。休息ポイントは立ち止まらず回復だけして先へ進む */
-  floorSeconds: { battle: 30, elite: 45, chest: 10, rest: 3, boss: 60 } as Record<string, number>,
+  floorSeconds: { battle: 24, elite: 36, chest: 8, rest: 2, boss: 48 } as Record<string, number>,
   /** 敗北後、次の探索に出るまでの時間 */
   returnSeconds: 60,
   /** 次の探索は「最高到達階層×この割合」付近のボス階層の次から始める（序盤の周回を省略） */
@@ -111,10 +111,10 @@ export const RARITY_WEIGHTS: Record<Rarity, number> = {
 };
 export const RARITY_INFO: Record<Rarity, { label: string; affixes: number; mul: number; specialChance: number }> = {
   normal: { label: 'Normal', affixes: 1, mul: 1.0, specialChance: 0.02 },
-  magic: { label: 'Magic', affixes: 2, mul: 1.25, specialChance: 0.05 },
-  rare: { label: 'Rare', affixes: 3, mul: 1.6, specialChance: 0.15 },
-  legendary: { label: 'Legendary', affixes: 4, mul: 2.1, specialChance: 1 },
-  mythic: { label: 'Mythic', affixes: 5, mul: 2.8, specialChance: 1 },
+  magic: { label: 'Magic', affixes: 2, mul: 1.35, specialChance: 0.05 },
+  rare: { label: 'Rare', affixes: 3, mul: 1.8, specialChance: 0.15 },
+  legendary: { label: 'Legendary', affixes: 4, mul: 2.5, specialChance: 1 },
+  mythic: { label: 'Mythic', affixes: 5, mul: 3.4, specialChance: 1 },
 };
 
 // ---------- アイテムベース ----------
