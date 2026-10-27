@@ -205,6 +205,8 @@ export interface IdleReport {
 
 export interface GameState {
   version: 1;
+  /** 一度だけ旧指数成長時代の所持装備を現在の数値帯に変換する */
+  balanceVersion?: 2;
   character: Character;
   items: Record<string, Item>;
   diaries: DiaryEntry[];

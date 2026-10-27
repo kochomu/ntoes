@@ -17,6 +17,7 @@ import { RARITIES, SLOTS, THEMES } from './types';
 export function createInitialState(): GameState {
   return {
     version: 1,
+    balanceVersion: 2,
     character: {
       level: 1, exp: 0, totalExp: 0, bestFloor: 0, retryStacks: 0,
       equipped: { weapon: null, armor: null, ring: null, accessory: null },
@@ -232,16 +233,27 @@ function finishExpedition(state: GameState, at: string, st: AdvanceStats) {
  * 指定秒数ぶん探索を進める。startMs は探索開始時刻（ひらめき判定とタイムスタンプに使う）。
  * 戻り値の carry は次回へ繰り越す秒数。
  */
-function advanceExploration(state: GameState, seconds: number, startMs: number, rng: Rng, now: Date, st: AdvanceStats, itemCap: { left: number }, combat?: string[], eager = false): number {
+function advanceExploration(
+  state: GameState,
+  seconds: number,
+  startMs: number,
+  rng: Rng,
+  now: Date,
+  st: AdvanceStats,
+  itemCap: { left: number },
+  combat?: string[],
+  opts: { eager?: boolean; stopAfterExpedition?: boolean; maxFloors?: number; instantTimestamps?: boolean } = {},
+): number {
   let budget = seconds;
   let processed = 0;
   let t = startMs;
+  const timestampAt = (ms: number) => new Date(opts.instantTimestamps ? Math.min(ms, now.getTime()) : ms).toISOString();
   const themes = recentThemeWeights(state, now);
   while (budget > 0) {
     if (!state.expedition) {
       const d = chooseDungeon(rng, themes);
       const best = state.character.bestFloor;
-      state.expedition = startExpedition(nextId(state, 'l'), currentBuild(state), d.id, best, new Date(t).toISOString());
+      state.expedition = startExpedition(nextId(state, 'l'), currentBuild(state), d.id, best, timestampAt(t));
       const startFloor = checkpointFloor(best, currentBuild(state).dreamWalk);
       state.expedition.floor = startFloor;
       state.expedition.events.push({ level: 'normal', kind: 'start', text: `${d.name}へ出発${startFloor > 1 ? `（第${startFloor}階層から）` : ''}` });
@@ -251,7 +263,7 @@ function advanceExploration(state: GameState, seconds: number, startMs: number, 
     const d = DUNGEON_BY_ID[ex.dungeonId];
     // 次の階層のイベント種別で所要時間が変わるため、通常戦闘の時間を最低コストとして判定
     // eager（画面を開いている間）は時間を前借りして次の階層を先に計算し、戦闘ログを流しながら待つ
-    if (budget < IDLE.floorSeconds.battle && !(eager && processed === 0 && budget >= 0)) break;
+    if (budget < IDLE.floorSeconds.battle && !(opts.eager && processed === 0 && budget >= 0)) break;
     processed++;
     const build = currentBuild(state);
     const isInspired = inspired(state, t);
@@ -260,7 +272,7 @@ function advanceExploration(state: GameState, seconds: number, startMs: number, 
     const cost = IDLE.floorSeconds[o.event] ?? IDLE.floorSeconds.battle;
     budget -= cost;
     t += cost * 1000;
-    const atIso = new Date(t).toISOString();
+    const atIso = timestampAt(t);
 
     st.kills += o.kills;
     st.maxChain = Math.max(st.maxChain, o.maxChainThisFloor);
@@ -292,14 +304,16 @@ function advanceExploration(state: GameState, seconds: number, startMs: number, 
       finishExpedition(state, atIso, st);
       budget -= IDLE.returnSeconds;
       t += IDLE.returnSeconds * 1000;
+      if (opts.stopAfterExpedition) break;
     }
+    if (opts.maxFloors !== undefined && processed >= opts.maxFloors) break;
   }
   // 進行中の探索ログは肥大化しないよう重要なものを優先して残す
   if (state.expedition && state.expedition.events.length > 80) {
     const evs = state.expedition.events;
     state.expedition.events = [...evs.filter((e) => e.level === 'epic' || e.level === 'important').slice(-50), ...evs.slice(-20)].slice(-80);
   }
-  return eager ? Math.max(-IDLE.floorSeconds.boss, budget) : Math.max(0, budget);
+  return opts.eager ? Math.max(-IDLE.floorSeconds.boss, budget) : Math.max(0, budget);
 }
 
 /** 探索の開始階層：最高到達階層の一定割合までのボス階層を突破済みとして、その次から始める */
@@ -416,7 +430,7 @@ export function settleIdle(prev: GameState, now: Date = new Date(), rng?: Rng, o
   const bestFrom = state.character.bestFloor;
   const startMs = capped ? now.getTime() - counted * 1000 : last;
   const detail = Math.min(counted, IDLE.detailSeconds);
-  const carry = advanceExploration(state, detail + (capped ? 0 : state.idle.carrySeconds), startMs, r, now, st, { left: IDLE.itemCapPerSettle }, opts.combat, opts.eager);
+  const carry = advanceExploration(state, detail + (capped ? 0 : state.idle.carrySeconds), startMs, r, now, st, { left: IDLE.itemCapPerSettle }, opts.combat, { eager: opts.eager });
   state.idle.carrySeconds = counted > detail ? 0 : carry;
   if (counted > detail) extrapolate(state, st, (counted - detail) / detail, r, nowIso);
   state.idle.lastTick = nowIso;
@@ -525,14 +539,19 @@ export function submitPost(
 
   // 5. 即時探索（投稿した内容の傾向が反映される）
   state.diaries.push(entry);
-  const seconds = isDream ? DREAM.instantExploreSeconds : POST.instantExploreSeconds;
+  const seconds = POST.instantExploreMaxFloors * Math.max(...Object.values(IDLE.floorSeconds)) + IDLE.returnSeconds;
   const st = emptyStats(state.character.bestFloor);
   const levelFrom = state.character.level;
   const bestFrom = state.character.bestFloor;
-  advanceExploration(state, seconds, nowMs, rng, nowDate, st, { left: Infinity });
+  const remainingSeconds = advanceExploration(state, seconds, nowMs, rng, nowDate, st, { left: Infinity }, undefined, {
+    stopAfterExpedition: true,
+    maxFloors: POST.instantExploreMaxFloors,
+    instantTimestamps: true,
+  });
+  const simulatedSeconds = seconds - remainingSeconds;
   const exploreExp = applyExp(state, st);
-  const report = makeReport(state, st, now, now, seconds, seconds, levelFrom, bestFrom, exploreExp, 'post');
-  const summary = `探索が進んだ：${st.floors}階層突破・${st.kills}体撃破${st.itemIds.length ? `・装備${st.itemIds.length}個` : ''}`;
+  const report = makeReport(state, st, now, now, simulatedSeconds, simulatedSeconds, levelFrom, bestFrom, exploreExp, 'post');
+  const summary = `探索が進んだ：${st.floors}階層突破・${st.kills}体撃破${st.itemIds.length ? `・装備${st.itemIds.length}個` : ''}${state.expedition ? `・探索続行中（今回の上限${POST.instantExploreMaxFloors.toLocaleString()}階）` : ''}`;
   events.push({ level: 'normal', kind: 'explore', text: summary });
   events.push(...pickHighlights(st.events.filter((e) => e.kind !== 'start'), 12));
   if (state.character.bestFloor > bestFrom && !st.events.some((e) => e.kind === 'record')) {

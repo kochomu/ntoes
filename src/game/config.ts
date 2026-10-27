@@ -25,12 +25,10 @@ export const LEVEL_STATS = {
 
 /** アイテムレベル：深い階層ほど強い装備が出る */
 export const itemLevelFor = (level: number, floor: number) => 1 + Math.floor(floor / 3) + Math.floor(level / 4);
-/**
- * 深層の装備倍率：敵と同じ階層成長率に加えて、アイテムレベルとレアリティ差で装備が優位になるようにする。
- * 良い引きやシナジーでさらに踏破速度を伸ばせる設計。
- */
-export const ITEM_GROWTH = { from: 40, rate: 1.06 };
-export const itemScaleFor = (floor: number) => Math.pow(ITEM_GROWTH.rate, Math.max(0, floor - ITEM_GROWTH.from));
+/** 敵は階層の二乗、装備は階層倍率×アイテムレベルで伸ばして桁の暴走を抑える */
+export const FLOOR_SCALING = { enemyDivisor: 100, itemStart: 40, itemDivisor: 100 };
+export const enemyScaleFor = (floor: number) => Math.pow(1 + Math.max(0, floor - 1) / FLOOR_SCALING.enemyDivisor, 2);
+export const itemScaleFor = (floor: number) => Math.max(1, (floor + FLOOR_SCALING.itemDivisor) / (FLOOR_SCALING.itemStart + FLOOR_SCALING.itemDivisor));
 
 // ---------- 投稿の報酬 ----------
 export const POST = {
@@ -38,8 +36,8 @@ export const POST = {
   dropBase: 1,
   dropBonusChance: 0.5,
   dropBonusMax: 2,
-  /** 投稿するとその場で探索が進む秒数 */
-  instantExploreSeconds: 10 * 60,
+  /** 投稿時に一気に進める階層数（敗北したらその挑戦の到達点で止める） */
+  instantExploreMaxFloors: 5_000,
   /** 「ひらめき」効果：投稿ごとに延長する時間と上限 */
   inspirationSeconds: 30 * 60,
   inspirationMaxSeconds: 2 * 3600,
@@ -111,10 +109,10 @@ export const RARITY_WEIGHTS: Record<Rarity, number> = {
 };
 export const RARITY_INFO: Record<Rarity, { label: string; affixes: number; mul: number; specialChance: number }> = {
   normal: { label: 'Normal', affixes: 1, mul: 1.0, specialChance: 0.02 },
-  magic: { label: 'Magic', affixes: 2, mul: 1.35, specialChance: 0.05 },
-  rare: { label: 'Rare', affixes: 3, mul: 1.8, specialChance: 0.15 },
-  legendary: { label: 'Legendary', affixes: 4, mul: 2.5, specialChance: 1 },
-  mythic: { label: 'Mythic', affixes: 5, mul: 3.4, specialChance: 1 },
+  magic: { label: 'Magic', affixes: 2, mul: 1.25, specialChance: 0.05 },
+  rare: { label: 'Rare', affixes: 3, mul: 1.6, specialChance: 0.15 },
+  legendary: { label: 'Legendary', affixes: 4, mul: 2.1, specialChance: 1 },
+  mythic: { label: 'Mythic', affixes: 5, mul: 2.8, specialChance: 1 },
 };
 
 // ---------- アイテムベース ----------
@@ -220,8 +218,6 @@ export const DREAM = {
   /** 夢アイテムのレアリティ（Rare以上確定） */
   rarityWeights: { rare: 70, legendary: 30 } as Record<'rare' | 'legendary', number>,
   expBonus: 20,
-  /** 夢を記録すると即時探索する秒数 */
-  instantExploreSeconds: 20 * 60,
 };
 
 export const SPECIAL_BY_KIND = Object.fromEntries([...SPECIALS, ...DREAM_SPECIALS].map((s) => [s.kind, s])) as Record<SpecialKind, SpecialDef>;
@@ -230,7 +226,6 @@ export const COMBAT = {
   chainLimit: 3,
   floorHealBase: 0.03,
   bossEvery: 10,
-  enemyGrowth: 1.06,
   enemyBase: { hp: 26, atk: 7, def: 2 },
   boss: { hp: 3.5, atk: 1.35, def: 1.2 },
   maxFloor: 1_000_000,
@@ -297,12 +292,12 @@ export interface DungeonDef {
   eventBias?: Partial<Record<'battle' | 'elite' | 'chest' | 'rest', number>>;
 }
 export const DUNGEONS: DungeonDef[] = [
-  { id: 'library', name: '忘却された図書館', color: '#2a2440', floorColor: '#3b3157', mods: { hp: 1.2, atk: 0.9, def: 1 }, enemies: [{ name: '彷徨う頁', sprite: 'book' }, { name: 'インクスライム', sprite: 'slime' }], boss: [{ name: '禁書の番人', sprite: 'book' }], dropThemes: ['learning', 'discovery'], eventBias: { chest: 1.4 } },
-  { id: 'gearworks', name: '歯車仕掛けの迷宮', color: '#2b2a24', floorColor: '#4a4232', mods: { hp: 1, atk: 1, def: 1.25 }, enemies: [{ name: 'ゼンマイ兵', sprite: 'golem' }, { name: '油まみれスライム', sprite: 'slime' }], boss: [{ name: '大時計の機神', sprite: 'golem' }], dropThemes: ['development', 'work'], eventBias: { elite: 1.3 } },
-  { id: 'volcano', name: '試練の火山', color: '#3a1d17', floorColor: '#5c2a1c', mods: { hp: 0.9, atk: 1.2, def: 0.9 }, enemies: [{ name: '火の小鬼', sprite: 'imp' }, { name: '溶岩スライム', sprite: 'slime' }], boss: [{ name: '紅蓮の試練王', sprite: 'imp' }], dropThemes: ['challenge', 'exercise'], eventBias: { elite: 1.6, rest: 0.7 } },
-  { id: 'shadow', name: '影の回廊', color: '#16151f', floorColor: '#25233a', mods: { hp: 1, atk: 1.1, def: 1 }, enemies: [{ name: '後悔の影', sprite: 'wraith' }, { name: '影スライム', sprite: 'slime' }], boss: [{ name: 'もう一人の自分', sprite: 'wraith' }], dropThemes: ['failure', 'rest'], eventBias: { elite: 1.2, chest: 1.2 } },
-  { id: 'ruins', name: '霧深き古代遺跡', color: '#1f2b2a', floorColor: '#33463f', mods: { hp: 1.1, atk: 1, def: 1.1 }, enemies: [{ name: '石の守護者', sprite: 'golem' }, { name: '苔むしたキノコ', sprite: 'mushroom' }], boss: [{ name: '霧の古代王', sprite: 'wraith' }], dropThemes: ['discovery', 'travel'], eventBias: { chest: 1.7 } },
-  { id: 'garden', name: '陽だまりの庭園', color: '#1f3322', floorColor: '#2f4d30', mods: { hp: 1.05, atk: 0.95, def: 1 }, enemies: [{ name: 'おしゃべりキノコ', sprite: 'mushroom' }, { name: '花スライム', sprite: 'slime' }], boss: [{ name: '大樹の精', sprite: 'mushroom' }], dropThemes: ['social', 'hobby', 'rest'], eventBias: { rest: 1.8, elite: 0.7 } },
+  { id: 'library', name: '忘却された図書館', color: '#2a2440', floorColor: '#3b3157', mods: { hp: 1.2, atk: 0.9, def: 1 }, enemies: [{ name: '彷徨う頁', sprite: 'book' }, { name: 'インクスライム', sprite: 'slime' }, { name: '骸骨書記', sprite: 'skeleton' }], boss: [{ name: '禁書の番人', sprite: 'book' }, { name: '骸骨司書', sprite: 'skeleton' }], dropThemes: ['learning', 'discovery'], eventBias: { chest: 1.4 } },
+  { id: 'gearworks', name: '歯車仕掛けの迷宮', color: '#2b2a24', floorColor: '#4a4232', mods: { hp: 1, atk: 1, def: 1.25 }, enemies: [{ name: 'ゼンマイ兵', sprite: 'golem' }, { name: '油まみれスライム', sprite: 'slime' }, { name: 'クロックワーカー', sprite: 'clockwork' }], boss: [{ name: '大時計の機神', sprite: 'golem' }, { name: '機巧の守衛', sprite: 'clockwork' }], dropThemes: ['development', 'work'], eventBias: { elite: 1.3 } },
+  { id: 'volcano', name: '試練の火山', color: '#3a1d17', floorColor: '#5c2a1c', mods: { hp: 0.9, atk: 1.2, def: 0.9 }, enemies: [{ name: '火の小鬼', sprite: 'imp' }, { name: '溶岩スライム', sprite: 'slime' }, { name: '火山竜', sprite: 'dragon' }], boss: [{ name: '紅蓮の試練王', sprite: 'imp' }, { name: '熔岩竜王', sprite: 'dragon' }], dropThemes: ['challenge', 'exercise'], eventBias: { elite: 1.6, rest: 0.7 } },
+  { id: 'shadow', name: '影の回廊', color: '#16151f', floorColor: '#25233a', mods: { hp: 1, atk: 1.1, def: 1 }, enemies: [{ name: '後悔の影', sprite: 'wraith' }, { name: '影スライム', sprite: 'slime' }, { name: '夜蝙蝠', sprite: 'bat' }], boss: [{ name: 'もう一人の自分', sprite: 'wraith' }, { name: '闇夜の大蝙蝠', sprite: 'bat' }], dropThemes: ['failure', 'rest'], eventBias: { elite: 1.2, chest: 1.2 } },
+  { id: 'ruins', name: '霧深き古代遺跡', color: '#1f2b2a', floorColor: '#33463f', mods: { hp: 1.1, atk: 1, def: 1.1 }, enemies: [{ name: '石の守護者', sprite: 'golem' }, { name: '苔むしたキノコ', sprite: 'mushroom' }, { name: '古代甲虫', sprite: 'scarab' }], boss: [{ name: '霧の古代王', sprite: 'wraith' }, { name: '遺跡の巨甲虫', sprite: 'scarab' }], dropThemes: ['discovery', 'travel'], eventBias: { chest: 1.7 } },
+  { id: 'garden', name: '陽だまりの庭園', color: '#1f3322', floorColor: '#2f4d30', mods: { hp: 1.05, atk: 0.95, def: 1 }, enemies: [{ name: 'おしゃべりキノコ', sprite: 'mushroom' }, { name: '花スライム', sprite: 'slime' }, { name: 'マンドレイク', sprite: 'mandrake' }], boss: [{ name: '大樹の精', sprite: 'mushroom' }, { name: '庭園のマンドレイク', sprite: 'mandrake' }], dropThemes: ['social', 'hobby', 'rest'], eventBias: { rest: 1.8, elite: 0.7 } },
 ];
 export const DUNGEON_BY_ID = Object.fromEntries(DUNGEONS.map((d) => [d.id, d])) as Record<string, DungeonDef>;
 /** テーマに関わらず選ばれる確率 */

@@ -1,6 +1,6 @@
 // ダンジョン探索のコア。1階層ずつ進める関数（playFloor）を中心に、
 // 中断・再開できる探索状態（Expedition）を扱う。乱数以外の外部状態に依存しない。
-import { COMBAT, FLOOR_EVENTS, type DungeonDef } from './config';
+import { COMBAT, FLOOR_EVENTS, enemyScaleFor, type DungeonDef } from './config';
 import { chance, int, pick, range, weighted, type Rng } from './rng';
 import type { Build } from './stats';
 import type { Expedition, FloorEvent, LogEvent } from './types';
@@ -30,7 +30,7 @@ export interface FloorOutcome {
 }
 
 const baseStats = (floor: number, d: DungeonDef) => {
-  const g = Math.pow(COMBAT.enemyGrowth, floor - 1);
+  const g = enemyScaleFor(floor);
   const b = COMBAT.enemyBase;
   return { hp: b.hp * g * d.mods.hp, atk: b.atk * g * d.mods.atk, def: b.def * g * d.mods.def };
 };
