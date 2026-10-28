@@ -95,20 +95,32 @@ export function tryAutoEquip(state: GameState, item: Item): EquipDecision {
   const rarityUpgrade = !!current
     && RARITIES.indexOf(item.rarity) > RARITIES.indexOf(current.rarity)
     && item.ilvl >= current.ilvl;
-  // 明らかに弱い装備はシミュレーションせずに見送る（端末の負荷対策）
-  if (current && !rarityUpgrade && !item.special && powerRating(computeBuild(ch.level, afterItems)) < powerRating(computeBuild(ch.level, beforeItems)) * 0.9) {
-    return { equipped: false, before: 0, after: 0, newSynergies: [] };
+  const synergyDiff = () => {
+    const beforeSyn = new Set(computeBuild(ch.level, beforeItems).synergies.flatMap((s) => s.desc.map((d) => `${s.tag}:${d}`)));
+    return computeBuild(ch.level, afterItems)
+      .synergies.flatMap((s) => s.desc.map((d) => ({ key: `${s.tag}:${d}`, text: `【${TAG_INFO[s.tag].label}×${s.count}】${d}` })))
+      .filter((x) => !beforeSyn.has(x.key))
+      .map((x) => x.text);
+  };
+  const equip = (before: number, after: number): EquipDecision => {
+    ch.equipped[item.slot] = item.id;
+    return { equipped: true, before, after, replaced: current ?? undefined, newSynergies: synergyDiff() };
+  };
+  // レアリティ優先の交換条件は明示ルールなので、戦闘シミュレーションを省く。
+  if (rarityUpgrade) return equip(0, 0);
+  // 大きく弱い候補と、誤差程度の伸びしかない候補はシミュレーションせず見送る。
+  // 長い探索中のドロップごとに複数回ダンジョンを再生する負荷を抑える。
+  if (current && !item.special) {
+    const beforePower = powerRating(computeBuild(ch.level, beforeItems));
+    const afterPower = powerRating(computeBuild(ch.level, afterItems));
+    if (afterPower < beforePower * 1.05) {
+      return { equipped: false, before: 0, after: 0, newSynergies: [] };
+    }
   }
   const before = evaluateLoadout(ch.level, beforeItems);
   const after = evaluateLoadout(ch.level, afterItems);
-  if (after <= before && !rarityUpgrade) return { equipped: false, before, after, newSynergies: [] };
-  const beforeSyn = new Set(computeBuild(ch.level, beforeItems).synergies.flatMap((s) => s.desc.map((d) => `${s.tag}:${d}`)));
-  const newSynergies = computeBuild(ch.level, afterItems)
-    .synergies.flatMap((s) => s.desc.map((d) => ({ key: `${s.tag}:${d}`, text: `【${TAG_INFO[s.tag].label}×${s.count}】${d}` })))
-    .filter((x) => !beforeSyn.has(x.key))
-    .map((x) => x.text);
-  ch.equipped[item.slot] = item.id;
-  return { equipped: true, before, after, replaced: current ?? undefined, newSynergies };
+  if (after <= before) return { equipped: false, before, after, newSynergies: [] };
+  return equip(before, after);
 }
 
 function nextId(state: GameState, prefix: string): string {
@@ -165,7 +177,11 @@ function pruneInventory(state: GameState) {
   // 価値 = レアリティ＋特殊効果＋アイテムレベル。夢アイテムは残す
   const rank: Record<Item['rarity'], number> = { normal: 0, magic: 4, rare: 8, legendary: 16, mythic: 32 };
   const value = (i: Item) => rank[i.rarity] + (i.special ? 4 : 0) + i.ilvl * 0.5;
-  const removable = spare.filter((i) => !i.dream).sort((a, b) => value(a) - value(b) || a.acquiredAt.localeCompare(b.acquiredAt));
+  const removable = spare.filter((i) => !i.dream).sort((a, b) => {
+    // 投稿の確定報酬は探索中の大量ドロップで押し出されないよう優先して残す。
+    const diaryPriority = Number(a.source === 'diary') - Number(b.source === 'diary');
+    return diaryPriority || value(a) - value(b) || a.acquiredAt.localeCompare(b.acquiredAt);
+  });
   for (const it of removable.slice(0, spare.length - DROPS.inventoryCap)) delete state.items[it.id];
 }
 
@@ -543,7 +559,7 @@ export function submitPost(
   const st = emptyStats(state.character.bestFloor);
   const levelFrom = state.character.level;
   const bestFrom = state.character.bestFloor;
-  const remainingSeconds = advanceExploration(state, seconds, nowMs, rng, nowDate, st, { left: Infinity }, undefined, {
+  const remainingSeconds = advanceExploration(state, seconds, nowMs, rng, nowDate, st, { left: POST.instantExploreItemCap }, undefined, {
     stopAfterExpedition: true,
     maxFloors: POST.instantExploreMaxFloors,
     instantTimestamps: true,

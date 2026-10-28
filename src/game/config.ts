@@ -36,8 +36,10 @@ export const POST = {
   dropBase: 1,
   dropBonusChance: 0.5,
   dropBonusMax: 2,
-  /** 投稿時に一気に進める階層数（敗北したらその挑戦の到達点で止める） */
-  instantExploreMaxFloors: 5_000,
+  /** 投稿後に一気に進める階層数。残りは通常探索で敗北まで続行する */
+  instantExploreMaxFloors: 100,
+  /** 投稿後の踏破中に処理する装備ドロップ数（戦闘シミュレーション負荷を抑える） */
+  instantExploreItemCap: 10,
   /** 「ひらめき」効果：投稿ごとに延長する時間と上限 */
   inspirationSeconds: 30 * 60,
   inspirationMaxSeconds: 2 * 3600,
@@ -54,9 +56,9 @@ export const IDLE = {
   /** 報酬計算の対象となる最大放置時間（Infinity = 無制限） */
   maxSeconds: Infinity,
   /** 1戦ずつ細かく計算する時間の上限。超えた分は直近のペースから成果を算出（端末の負荷対策） */
-  detailSeconds: 24 * 3600,
+  detailSeconds: 3 * 3600,
   /** 算出分で生成する装備の上限 */
-  extrapolatedItemCap: 200,
+  extrapolatedItemCap: 30,
   /** 各イベントにかかる探索時間（秒）。休息ポイントは立ち止まらず回復だけして先へ進む */
   floorSeconds: { battle: 24, elite: 36, chest: 8, rest: 2, boss: 48 } as Record<string, number>,
   /** 敗北後、次の探索に出るまでの時間 */

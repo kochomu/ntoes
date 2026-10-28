@@ -150,7 +150,7 @@ export function computeBuild(level: number, items: Item[], retryStacks = 0): Bui
   };
 }
 
-/** 表示用の簡易戦闘力（評価には使わず、目安表示のみ） */
+/** 表示と装備候補の事前判定に使う簡易戦闘力。最終評価は探索シミュレーションで行う */
 export function powerRating(b: Build): number {
   const offense = b.atk * (1 + b.crit * (b.critMul - 1)) * (1 + b.extraAttack) * (1 + b.chainChance * 0.5) * (1 + b.momentum * 5 + b.onKillAtk * 20);
   const defense = (b.hp + b.def * 8) * (1 / (1 - b.dodge)) * (1 + b.lifesteal * 2 + b.floorHeal * 2) * (1 + b.phoenix * 0.5);
